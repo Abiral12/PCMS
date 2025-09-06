@@ -1,0 +1,459 @@
+/* Calm Trello-inspired Dashboard + Holidays Modal + Toasts (no Tailwind)
+   — wider container + NOT BRIGHT color theme */
+
+/* ===================== Theme Vars (muted) ===================== */
+:root{
+  /* Layout */
+  --container-max: 1600px;   /* wider than before (was 1240px) */
+  --container-pad: 16px;
+
+  /* Palette (subdued) */
+  --bg:#eef1f5;            /* soft slate/blue background */
+  --header:#1d2e4a;        /* desaturated navy */
+  --header-ink:#e7ecf7;
+
+  --card:#ffffff;          /* keep cards clean white for readability */
+  --ink:#1d2432;           /* deep slate text */
+  --muted:#6b7383;         /* muted labels */
+
+  --primary:#3a5f8a;       /* muted steel blue */
+  --primary-600:#324f72;
+  --success:#2f7d5a;       /* toned green */
+  --success-600:#276a4c;
+  --danger:#b84a4a;        /* muted red */
+  --danger-600:#9f3f3f;
+  --info:#3a7f7b;          /* muted teal */
+  --info-600:#316b68;
+
+  --amber:#b8832b;         /* toned amber */
+  --cyan:#3c7e92;          /* dusty cyan */
+  --gray:#8a93a3;          /* slate gray */
+
+  --border:#d5dbe6;        /* subtle border */
+  --shadow:0 8px 26px rgba(18, 24, 40, .06), 0 1px 4px rgba(18, 24, 40, .06);
+
+  --radius:14px;
+  --radius-lg:18px;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:Inter, ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial;
+  color:var(--ink);
+  background:
+    radial-gradient(1400px 600px at 110% -120%, #e5eaf4 0%, transparent 60%) no-repeat,
+    radial-gradient(1200px 500px at -200px -80px, #e5f0ee 0%, transparent 55%) no-repeat,
+    var(--bg);
+}
+
+/* ===================== Header ===================== */
+.header{
+  position:sticky; top:0; z-index:30;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px 22px;
+  color:var(--header-ink);
+  background:linear-gradient(135deg, var(--header) 0%, #233a5f 100%);
+  box-shadow:var(--shadow)
+}
+.header h1{margin:0; font-size:20px; font-weight:800; letter-spacing:.3px}
+.header-actions{display:flex; gap:10px}
+
+/* ===================== Tabs ===================== */
+.tabs{
+  display:flex; gap:8px; flex-wrap:wrap;
+  max-width:var(--container-max); margin:12px auto 0; padding:8px var(--container-pad);
+  background:rgba(255,255,255,.55);
+  border:1px solid var(--border); border-radius:999px; backdrop-filter: blur(6px);
+}
+.tab{
+  appearance:none; border:1px solid transparent; background:transparent; color:var(--muted);
+  padding:10px 16px; border-radius:999px; font-weight:700; text-transform:capitalize;
+  transition:all .18s ease; cursor:pointer;
+}
+.tab:hover{color:var(--ink); background:#eef2f7}
+.tab.active{
+  background:#ffffff; color:#1f2a44; border-color:var(--border);
+  box-shadow:0 6px 18px rgba(50,79,114,.12), inset 0 -1px 0 rgba(0,0,0,.04)
+}
+
+/* ===================== Main ===================== */
+.dashboard{min-height:100vh; display:flex; flex-direction:column}
+
+/* wider container */
+.content{max-width:var(--container-max); margin:16px auto; padding:16px var(--container-pad)}
+.content,
+.tabs,
+.holidays-wrapper {
+  max-width: 95%;        /* take up almost full width */
+  width: 95%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+.card {
+  width: 100%;
+}
+
+@media (min-width: 1600px) {
+  .content,
+  .tabs,
+  .holidays-wrapper {
+    max-width: 1600px;   /* fixed at 1600px on very large screens */
+  }
+}
+
+/* if you have a holidays wrapper row, keep it aligned with container */
+.holidays-wrapper{
+  max-width:var(--container-max); margin:14px auto 0; padding:0 var(--container-pad);
+  display:flex; justify-content:flex-end;
+}
+
+/* ===================== Cards ===================== */
+.card{
+  background:var(--card); border:1px solid var(--border); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow); padding:18px; margin-bottom:18px;
+  transition:transform .12s ease, box-shadow .12s ease
+}
+.card:hover{transform:translateY(-2px); box-shadow:0 16px 36px rgba(18,24,40,.08), 0 3px 8px rgba(18,24,40,.06)}
+.card-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px}
+.subcard{background:#f3f5fa; border:1px dashed var(--border); border-radius:16px; padding:16px; margin-bottom:14px}
+
+/* ===================== Buttons ===================== */
+.btn{
+  appearance:none; border:0; border-radius:999px; padding:10px 16px;
+  font-weight:700; cursor:pointer; transition:.18s ease all; box-shadow:0 1px 0 rgba(0,0,0,.03)
+}
+.btn.small{padding:6px 10px; font-size:12px}
+.btn:focus{outline:3px solid rgba(58, 114, 255, .20); outline-offset:2px}
+
+.btn.primary{background:var(--primary); color:#f7f9ff}
+.btn.primary:hover{background:var(--primary-600)}
+.btn.success{background:var(--success); color:#f0fff7}
+.btn.success:hover{background:var(--success-600)}
+.btn.danger{background:var(--danger); color:#fff7f7}
+.btn.danger:hover{background:var(--danger-600)}
+.btn.info{background:var(--info); color:#effdfc}
+.btn.info:hover{background:var(--info-600)}
+.btn.secondary{background:#e7ebf3; color:#1d2432; border:1px solid #d0d7e6}
+.btn.secondary:hover{background:#dfe4ee}
+
+/* ===================== Forms ===================== */
+.form.grid{display:grid; gap:14px}
+.grid-2{display:grid; grid-template-columns:1fr 1fr; gap:14px}
+@media (max-width:760px){.grid-2{grid-template-columns:1fr}}
+.field{display:flex; flex-direction:column; gap:6px}
+.field label{font-size:13px; color:var(--muted); font-weight:700}
+.input{
+  width:100%; padding:12px 14px; border:1px solid var(--border); border-radius:12px;
+  background:#ffffff; color:var(--ink); transition:border .15s ease, box-shadow .15s ease
+}
+.input:focus{outline:none; border-color:#b9c4d8; box-shadow:0 0 0 4px rgba(62, 96, 138, .14)}
+.input.textarea{min-height:110px; resize:vertical}
+.actions{display:flex; gap:10px; flex-wrap:wrap}
+
+/* ===================== Tables ===================== */
+.table-wrap{
+  overflow:auto; border:1px solid var(--border); border-radius:16px; background:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.6)
+}
+.table{width:100%; border-collapse:separate; border-spacing:0}
+.table thead th{
+  position:sticky; top:0; z-index:1; background:linear-gradient(0deg,#f1f3f8,#f1f3f8);
+  text-align:left; font-size:12.5px; color:#2f3b4e; border-bottom:1px solid var(--border);
+  padding:12px 14px; letter-spacing:.2px;
+}
+.table tbody td{padding:12px 14px; border-top:1px solid var(--border); vertical-align:middle}
+.table tbody tr:nth-child(odd){background:#fafbfe}
+.table tbody tr:hover{background:#edf1f7}
+.trello-table .table tbody td{padding:14px 18px}
+.table-actions{display:flex; gap:8px}
+
+/* ===================== Badges (muted pills) ===================== */
+.badge{
+  display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px;
+  font-size:12px; font-weight:800; letter-spacing:.2px; border:1px solid rgba(0,0,0,.04)
+}
+.badge-green{background:#e9f6f0; color:#226349}
+.badge-red{background:#fbecec; color:#8f2e2e}
+.badge-amber{background:#fbf1df; color:#6e4d1d}
+.badge-cyan{background:#e7f2f6; color:#2b5763}
+.badge-gray{background:#eef1f6; color:#3c4556}
+
+/* ===================== Empty / Error ===================== */
+.empty{padding:36px; text-align:center; color:var(--muted); font-weight:600}
+.muted{color:var(--muted)}
+.error-box{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  background:#fbeef1; color:#7c2b35; border:1px solid #f2cfd6; border-radius:14px;
+  padding:12px 14px; margin-bottom:14px
+}
+
+/* ===================== Modal (generic) ===================== */
+.modal-backdrop{
+  position:fixed; inset:0; background:rgba(20,26,38,.45);
+  display:flex; align-items:center; justify-content:center; z-index:60; padding:20px
+}
+.modal{
+  background:#ffffff; border:1px solid var(--border); border-radius:18px; box-shadow:var(--shadow);
+  padding:18px; max-width:560px; width:100%; max-height:90vh; overflow:auto
+}
+.modal-image img{max-width:100%; max-height:54vh; border-radius:12px; display:block; margin:10px auto}
+
+/* ===================== Loading ===================== */
+.loading{padding:80px 20px; text-align:center}
+
+/* ===================== Holidays Modal (hm-*) ===================== */
+.hm-backdrop{
+  position:fixed; inset:0; z-index:80; background:rgba(20,26,38,.45);
+  display:flex; align-items:center; justify-content:center; padding:20px
+}
+.hm-modal{
+  background:#fff; border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow);
+  width:min(980px,92vw); max-height:92vh; overflow:auto; padding:18px
+}
+.hm-header{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px}
+.hm-header h3{margin:0; font-size:18px; font-weight:800; color:#26344b}
+.hm-btn{
+  appearance:none; border:0; cursor:pointer; font-weight:800; border-radius:999px;
+  padding:10px 14px; transition:all .18s ease;
+}
+.hm-btn.hm-sm{padding:6px 10px; font-size:12px}
+.hm-btn.hm-primary{background:var(--primary); color:#f6fbff}
+.hm-btn.hm-primary:hover{background:var(--primary-600)}
+.hm-btn.hm-danger{background:var(--danger); color:#fff7f7}
+.hm-btn.hm-danger:hover{background:var(--danger-600)}
+.hm-btn.hm-secondary{background:#e7ebf3; color:#1d2432; border:1px solid #d0d7e6}
+.hm-btn.hm-secondary:hover{background:#dfe4ee}
+
+.hm-grid{display:grid; grid-template-columns:1.2fr .8fr; gap:16px}
+@media (max-width:900px){.hm-grid{grid-template-columns:1fr}}
+
+.hm-cal{background:#fff; border:1px solid var(--border); border-radius:16px; padding:14px; box-shadow:var(--shadow)}
+.hm-react-calendar{width:100%; border:0 !important; border-radius:12px; padding:8px}
+.hm-react-calendar .react-calendar__tile{border-radius:10px; transition:all .18s ease}
+.hm-react-calendar .react-calendar__tile:hover{background:#eef2f7}
+.hm-mark{
+  background:#25384f !important; color:#eef4ff !important;
+  border-radius:10px !important; font-weight:800;
+  box-shadow:0 0 0 2px rgba(37,56,79,.18) inset
+}
+.hm-hint{margin:10px 2px 0; color:var(--muted); font-size:12.5px}
+
+.hm-subcard{margin-top:12px; background:#f3f5fa; border:1px dashed var(--border); border-radius:14px; padding:12px}
+.hm-subhead{display:flex; align-items:center; gap:8px; margin-bottom:8px}
+.hm-datechip{
+  display:inline-block; background:#eef2f9; color:#24334b;
+  border:1px solid var(--border); border-radius:999px; padding:4px 10px;
+  font-size:12px; font-weight:800;
+}
+.hm-input{width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:12px; background:#fff; color:var(--ink)}
+.hm-input:focus{outline:none; border-color:#b9c4d8; box-shadow:0 0 0 4px rgba(62, 96, 138, .14)}
+.hm-textarea{min-height:90px; resize:vertical; margin-top:6px}
+.hm-actions{display:flex; gap:10px; margin-top:10px}
+
+.hm-list{background:#fff; border:1px solid var(--border); border-radius:16px; padding:14px; box-shadow:var(--shadow); min-height:200px}
+.hm-listhead{display:flex; align-items:center; gap:10px; justify-content:space-between; margin-bottom:6px}
+.hm-pill{display:inline-block; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:800; border:1px solid var(--border)}
+.hm-blue{background:#eef2f9; color:#24334b}
+.hm-gray{background:#eef1f6; color:#3c4556}
+.hm-empty{padding:20px; text-align:center; color:var(--muted); font-weight:600}
+.hm-ul{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px}
+.hm-li{
+  display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+  background:#253141; border:1px solid #1a2330; color:#e9edf5;
+  border-radius:12px; padding:12px; box-shadow:0 2px 8px rgba(18,24,40,.28)
+}
+.hm-li-main strong{display:block; font-size:14px; margin-bottom:2px}
+.hm-desc{margin:4px 0 0; font-size:13px; color:#cfd8ea}
+.hm-error{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:#fbeef1; color:#7c2b35; border:1px solid #f2cfd6; border-radius:14px;
+  padding:10px 12px; margin-bottom:10px;
+}
+
+/* ===================== Toasts ===================== */
+.toast-wrap{
+  position:fixed; right:18px; top:18px; z-index:100;
+  display:flex; flex-direction:column; gap:10px; pointer-events:none;
+}
+.toast{
+  min-width:240px; max-width:360px; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:12px 14px; border-radius:12px; border:1px solid var(--border);
+  box-shadow:var(--shadow); font-weight:700; pointer-events:auto; animation:toastIn .2s ease-out;
+}
+.toast-success{background:#e8f6ef; color:#215942; border-color:#cfeadb}
+.toast-error{background:#f7e9ea; color:#7c2b35; border-color:#eec9ce}
+.toast-x{
+  appearance:none; border:0; background:transparent; cursor:pointer; font-size:14px;
+  color:inherit; font-weight:900; line-height:1;
+}
+@keyframes toastIn{from{opacity:0; transform:translateY(-6px)} to{opacity:1; transform:translateY(0)}}
+
+/* ===================== Misc ===================== */
+.header .btn{box-shadow:none}
+
+/* Optional: slightly larger paddings on very wide screens */
+@media (min-width: 1400px){
+  .trello-table .table tbody td { padding: 16px 20px; }
+  .card { padding: 22px; }
+}
+
+/* Messages */
+.msg-body {
+  margin-top: .5rem;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+.checkbox-row input[type="checkbox"] {
+  margin-right: .5rem;
+}
+.hm-pill.hm-blue { background: #e6f0ff; color: #174ea6; }
+.hm-pill.hm-gray { background: #f0f0f0; color: #555; }
+.badge.badge-gray { background: #eee; color: #333; }
+
+/* ========== Holidays Modal — Lists ========== */
+
+/* Section wrapper */
+.hm-section {
+  margin-top: 12px;
+  margin-bottom: 20px;
+}
+.hm-section-title {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1f2937; /* slate-800 */
+}
+
+/* Muted helper */
+.hm-muted {
+  color: #6b7280; /* slate-500 */
+  font-size: 13px;
+}
+
+/* --- Progress Updates --- */
+.prog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 220px;         /* keep list compact in modal */
+  overflow: auto;
+  padding-right: 4px;        /* room for scrollbar */
+}
+
+.prog-item {
+  background: #f9fafb;      /* subtle card bg */
+  border: 1px solid #e5e7eb; /* gray-200 */
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.prog-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.prog-employee {
+  font-weight: 700;
+  color: #111827;           /* gray-900 */
+}
+.prog-task {
+  color: #6b7280;           /* gray-500 */
+  font-size: 13px;
+}
+
+.prog-msg {
+  margin: 6px 0 8px;
+  color: #374151;           /* gray-700 */
+  line-height: 1.45;
+  white-space: pre-wrap;    /* keep newlines */
+  word-break: break-word;
+}
+
+.prog-time {
+  font-size: 12px;
+  color: #6b7280;           /* gray-500 */
+}
+
+/* --- Holiday Requests --- */
+.hr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.hr-item {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 0 rgba(17,24,39,0.02);
+}
+
+.hr-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.hr-name {
+  font-weight: 700;
+  color: #111827;
+}
+.hr-date {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.hr-msg {
+  margin: 4px 0 0;
+  color: #374151;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* --- optional: subtle scrollbars for those lists --- */
+.prog-list::-webkit-scrollbar,
+.hr-list::-webkit-scrollbar {
+  width: 8px;
+}
+.prog-list::-webkit-scrollbar-thumb,
+.hr-list::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 999px;
+}
+.prog-list::-webkit-scrollbar-thumb:hover,
+.hr-list::-webkit-scrollbar-thumb:hover {
+  background: #d1d5db;
+}
+
+/* --- small screens --- */
+@media (max-width: 640px) {
+  .prog-list,
+  .hr-list {
+    max-height: 180px;
+  }
+}
+.span-2 { grid-column: 1 / -1; }
+.grid-2 .span-2 { grid-column: 1 / -1; }
+
+/* Subtle warning row for incomplete items */
+.row-warning {
+  background: rgba(255, 193, 7, 0.06);
+}
+
+/* Quick pill colors used above (match your existing palette) */
+.hm-pill.hm-blue { background: #e6f0ff; color: #0b57d0; }
+.hm-pill.hm-green { background: #e8f5e9; color: #1b5e20; }
+.hm-pill.hm-amber { background: #fff8e1; color: #8d6e00; }
+.hm-pill.hm-gray { background: #f3f3f3; color: #444; }

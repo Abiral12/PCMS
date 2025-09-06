@@ -1,0 +1,141 @@
+/* Trello-inspired modal + list (no Tailwind) */
+
+:root{
+  --bg:#f4f6fb;
+  --ink:#0f172a;
+  --muted:#5b6b81;
+  --card:#ffffff;
+  --border:#e6e9f2;
+  --shadow:0 10px 30px rgba(16,24,40,.06), 0 2px 6px rgba(16,24,40,.06);
+
+  --primary:#2a62ff;
+  --primary-600:#1c49d8;
+  --danger:#ff4d4f;
+  --danger-600:#e04345;
+  --secondary:#e7ecf7;
+
+  --green:#22c55e;
+  --blue:#3b82f6;
+  --gray:#94a3b8;
+
+  --radius:16px;
+}
+
+/* Backdrop & modal shell */
+.hm-backdrop{
+  position:fixed; inset:0; z-index:80;
+  background:rgba(15,23,42,.45);
+  display:flex; align-items:center; justify-content:center;
+  padding:20px;
+}
+.hm-modal{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:20px;
+  box-shadow:var(--shadow);
+  width:min(980px, 92vw);
+  max-height:92vh; overflow:auto;
+  padding:18px;
+}
+.hm-header{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  margin-bottom:10px;
+}
+.hm-header h3{ margin:0; font-size:18px; font-weight:800; color:#1f2a44 }
+
+.hm-btn{
+  appearance:none; border:0; cursor:pointer;
+  font-weight:800; border-radius:999px;
+  padding:10px 14px; transition:all .18s ease;
+}
+.hm-btn.hm-sm{ padding:6px 10px; font-size:12px }
+.hm-btn.hm-primary{ background:var(--primary); color:#fff }
+.hm-btn.hm-primary:hover{ background:var(--primary-600) }
+.hm-btn.hm-danger{ background:var(--danger); color:#fff }
+.hm-btn.hm-danger:hover{ background:var(--danger-600) }
+.hm-btn.hm-secondary{ background:var(--secondary); color:#0f172a; border:1px solid #d9e1f0 }
+.hm-btn.hm-secondary:hover{ background:#dfe6f5 }
+
+/* Grid: calendar + list */
+.hm-grid{
+  display:grid; grid-template-columns:1.2fr .8fr; gap:16px;
+}
+@media (max-width: 900px){
+  .hm-grid{ grid-template-columns:1fr }
+}
+
+/* Calendar panel */
+.hm-cal{
+  background:#fff; border:1px solid var(--border);
+  border-radius:var(--radius); padding:14px;
+  box-shadow:var(--shadow);
+}
+.hm-react-calendar{
+  width:100%;
+  border:0 !important;
+  border-radius:12px;
+  padding:8px;
+}
+.hm-react-calendar .react-calendar__tile{
+  border-radius:10px; transition:all .18s ease
+}
+.hm-react-calendar .react-calendar__tile:hover{
+  background:#eef5ff;
+}
+.hm-mark{
+  background:#182533 !important; color:#fff !important;
+  border-radius:10px !important; font-weight:800;
+  box-shadow:0 0 0 2px rgba(24,37,51,.15) inset;
+}
+.hm-hint{
+  margin:10px 2px 0; color:var(--muted); font-size:12.5px;
+}
+
+/* Add form (subcard) */
+.hm-subcard{
+  margin-top:12px; background:#f7f9ff;
+  border:1px dashed var(--border); border-radius:14px; padding:12px;
+}
+.hm-subhead{ display:flex; align-items:center; gap:8px; margin-bottom:8px }
+.hm-datechip{
+  display:inline-block; background:#eef4ff; color:#1f2a44;
+  border:1px solid var(--border); border-radius:999px;
+  padding:4px 10px; font-size:12px; font-weight:800;
+}
+.hm-input{
+  width:100%; padding:10px 12px;
+  border:1px solid var(--border); border-radius:12px;
+  background:#fff; color:var(--ink);
+}
+.hm-input:focus{ outline:none; border-color:#b5c8ff; box-shadow:0 0 0 4px rgba(58,114,255,.14) }
+.hm-textarea{ min-height:90px; resize:vertical; margin-top:6px }
+.hm-actions{ display:flex; gap:10px; margin-top:10px }
+
+/* List panel */
+.hm-list{
+  background:#fff; border:1px solid var(--border);
+  border-radius:var(--radius); padding:14px;
+  box-shadow:var(--shadow);
+  min-height:200px;
+}
+.hm-listhead{
+  display:flex; align-items:center; gap:10px; justify-content:space-between; margin-bottom:6px
+}
+.hm-pill{
+  display:inline-block; padding:4px 10px; border-radius:999px;
+  font-size:12px; font-weight:800; border:1px solid var(--border)
+}
+.hm-blue{ background:#eef4ff; color:#1f2a44 }
+.hm-gray{ background:#eef2f8; color:#384454 }
+
+.hm-empty{ padding:20px; text-align:center; color:var(--muted); font-weight:600 }
+
+.hm-ul{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px }
+.hm-li{
+  display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+  background:#182533; border:1px solid #101620; color:#fff;
+  border-radius:12px; padding:12px;
+  box-shadow:0 2px 8px rgba(16,24,40,.35)
+}
+.hm-li-main strong{ display:block; font-size:14px; margin-bottom:2px }
+.hm-desc{ margin:4px 0 0; font-size:13px; color:#d6e2ff }

@@ -1,0 +1,16 @@
+import mongoose, { Schema, Document } from 'mongoose';
+
+export interface INotice extends Document {
+  title: string;
+  message: string;
+  employeeIds: mongoose.Types.ObjectId[]; // Empty array = all employees
+  createdAt: Date;
+}
+
+const NoticeSchema: Schema = new Schema({
+  title: { type: String, required: true },
+  message: { type: String, required: true },
+  employeeIds: [{ type: Schema.Types.ObjectId, ref: 'Employee' }],
+}, { timestamps: true });
+
+export default mongoose.models.Notice || mongoose.model<INotice>('Notice', NoticeSchema);
