@@ -6,11 +6,6 @@ import Task from '@/models/Task';
 import Employee from '@/models/Employee';
 import Role from '@/models/Role';
 
-// Explicit type for params
-interface Params {
-  id: string;
-}
-
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret_change_me';
 
 type Perms = {
@@ -35,7 +30,6 @@ function identifyCaller(req: NextRequest):
   | { kind: 'admin'; username: string }
   | { kind: 'employee'; userId: string }
   | null {
-  // Admin via JWT cookie
   const adminToken = req.cookies.get('admin_token')?.value;
   if (adminToken) {
     try {
@@ -43,7 +37,6 @@ function identifyCaller(req: NextRequest):
       if (payload?.role === 'Admin') return { kind: 'admin', username: payload.username };
     } catch { /* ignore */ }
   }
-  // Employee via header or cookie
   const fromHeader = req.headers.get('x-user-id');
   if (fromHeader) return { kind: 'employee', userId: fromHeader };
   const fromCookie = req.cookies.get('employeeId')?.value ?? null;
@@ -81,66 +74,129 @@ function parseDateMaybe(value: unknown): Date | undefined {
 
 /* ---------------- PUT /api/tasks/[id] ---------------- */
 export async function PUT(
-  request: NextRequest,
-  context: { params: Promise<Params> }
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }   // ← params is a Promise
 ) {
   try {
-    const { id } = await context.params;           // 👈 await the params
-    const body = await request.json();
-
     await dbConnect();
 
-    const updated = await Task.findByIdAndUpdate(
-      id,
-      {
-        title: body.title,
-        description: body.description,
-        assignedTo: body.assignedTo,
-        priority: body.priority,
-        status: body.status,
-        dueDate: body.dueDate,
-      },
-      { new: true }
-    );
+    const caller = identifyCaller(req);
+    if (!caller) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
-    if (!updated) {
-      return NextResponse.json(
-        { success: false, error: 'Task not found' },
-        { status: 404 }
-      );
+    const { id } = await context.params;          // ← await it
+    const task = await Task.findById(id);
+    if (!task) return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
+
+    // Authorization
+    let isAdmin = caller.kind === 'admin';
+    let isManager = false;
+    let isAssignee = false;
+
+    if (caller.kind === 'employee') {
+      const roleDoc = await getUserRole(caller.userId);
+      isManager = !!roleDoc?.permissions?.canAssignTasks;
+      isAssignee = task.assignedTo?.toString?.() === caller.userId;
     }
 
-    return NextResponse.json({ success: true, task: updated });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error.message || 'Failed to update task' },
-      { status: 500 }
-    );
+    if (!isAdmin && !isManager && !isAssignee) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
+
+    const raw = await req.json();
+    const body = isRecord(raw) ? (raw as Record<string, unknown>) : {};
+
+    const updates: Record<string, unknown> = {};
+
+    if (isAdmin || isManager) {
+      if (typeof body.title === 'string') updates.title = body.title.trim();
+      if (typeof body.description === 'string') updates.description = body.description;
+      if (body.priority === 'low' || body.priority === 'medium' || body.priority === 'high') {
+        updates.priority = body.priority;
+      }
+      if (
+        body.status === 'pending' ||
+        body.status === 'in-progress' ||
+        body.status === 'completed' ||
+        body.status === 'cancelled'
+      ) {
+        updates.status = body.status;
+      }
+      const due = parseDateMaybe(body.dueDate);
+      if (due) updates.dueDate = due;
+
+      if (typeof body.assignedTo === 'string' && body.assignedTo !== task.assignedTo?.toString()) {
+        updates.assignedTo = body.assignedTo;
+
+        // recalc role field to the assignee's role _id
+        const emp = await Employee.findById(body.assignedTo).populate('role').lean();
+        let roleId: string | null = null;
+        const empRole = emp && isRecord(emp) ? (emp as any).role : null;
+        if (empRole && isRecord(empRole) && hasObjId(empRole)) {
+          roleId = empRole._id.toString();
+        } else if (typeof empRole === 'string') {
+          const r = await Role.findOne({ name: empRole }).lean();
+          roleId = r ? ((r as any)._id).toString() : null;
+        }
+        updates.role = roleId;
+      }
+    } else if (isAssignee) {
+      if (typeof body.description === 'string') updates.description = body.description;
+      if (
+        body.status === 'pending' ||
+        body.status === 'in-progress' ||
+        body.status === 'completed' ||
+        body.status === 'cancelled'
+      ) {
+        updates.status = body.status;
+      }
+    }
+
+    Object.assign(task, updates);
+    await task.save();
+
+    return NextResponse.json({ success: true, task });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Server error';
+    console.error('PUT /api/tasks/[id] error:', message);
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
 
-// DELETE /api/tasks/[id]
+/* -------------- DELETE /api/tasks/[id] -------------- */
 export async function DELETE(
-  _request: NextRequest,
-  context: { params: Promise<Params> }
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }   // ← params is a Promise
 ) {
   try {
-    const { id } = await context.params;           // 👈 await the params
     await dbConnect();
 
-    const deleted = await Task.findByIdAndDelete(id);
-    if (!deleted) {
-      return NextResponse.json(
-        { success: false, error: 'Task not found' },
-        { status: 404 }
-      );
+    const caller = identifyCaller(req);
+    if (!caller) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+
+    const { id } = await context.params;          // ← await it
+    const task = await Task.findById(id).lean();
+    if (!task) return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
+
+    let allowed = caller.kind === 'admin';
+
+    if (!allowed && caller.kind === 'employee') {
+      const roleDoc = await getUserRole(caller.userId);
+      if (roleDoc?.permissions?.canAssignTasks) allowed = true;
+
+      const toStr = (v: any) => (typeof v === 'string' ? v : v?.toString?.());
+      if (!allowed && toStr((task as any).assignedTo) === caller.userId) allowed = true;
+      if (!allowed && typeof (task as any).assignedBy === 'string' && (task as any).assignedBy === caller.userId) {
+        allowed = true;
+      }
     }
 
+    if (!allowed) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+
+    await Task.findByIdAndDelete(id);
     return NextResponse.json({ success: true, message: 'Task deleted' });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error.message || 'Failed to delete task' },
-      { status: 500 }
-    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Server error';
+    console.error('DELETE /api/tasks/[id] error:', message);
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

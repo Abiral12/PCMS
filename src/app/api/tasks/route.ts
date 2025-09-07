@@ -324,33 +324,68 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-/** DELETE /api/tasks/[id] — delete a task */
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+// DELETE /api/tasks?id=<taskId>   (or JSON body { id })
+export async function DELETE(request: NextRequest) {
   try {
     await dbConnect();
 
-    const caller = identifyCaller(req);
-    if (!caller) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const caller = identifyCaller(request);
+    if (!caller) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
 
-    const { id } = params;
-    const task = await Task.findById(id).lean();
-    if (!task) return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
+    // Prefer query param; fallback to JSON body
+    const { searchParams } = new URL(request.url);
+    let id = searchParams.get('id');
 
-    // Permission: admin OR canAssignTasks OR assignee OR creator (employee-created)
+    if (!id) {
+      try {
+        const body = await request.json();
+        if (isRecord(body) && typeof body.id === 'string') id = body.id;
+      } catch {
+        /* body may be empty; ignore */
+      }
+    }
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Task id is required (?id= or JSON body { id })' },
+        { status: 400 }
+      );
+    }
+
+    // Authorization (same rules you used in [id]/route.ts)
     let allowed = caller.kind === 'admin';
+
     if (!allowed && caller.kind === 'employee') {
       const roleDoc = await getUserRole(caller.userId);
       if (roleDoc?.permissions?.canAssignTasks) allowed = true;
-      if (!allowed && task.assignedTo?.toString?.() === caller.userId) allowed = true;
-      if (!allowed && typeof task.assignedBy === 'string' && task.assignedBy === caller.userId) allowed = true;
-    }
-    if (!allowed) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
 
-    await Task.findByIdAndDelete(id);
+      const task = await Task.findById(id).lean();
+      if (!task) {
+        return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
+      }
+
+      const toStr = (v: any) => (typeof v === 'string' ? v : v?.toString?.());
+      if (!allowed && toStr((task as any).assignedTo) === caller.userId) allowed = true;
+      if (!allowed && typeof (task as any).assignedBy === 'string' && (task as any).assignedBy === caller.userId) {
+        allowed = true;
+      }
+    }
+
+    if (!allowed) {
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
+    }
+
+    const deleted = await Task.findByIdAndDelete(id);
+    if (!deleted) {
+      return NextResponse.json({ success: false, error: 'Task not found' }, { status: 404 });
+    }
+
     return NextResponse.json({ success: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Server error';
-    console.error('Error in DELETE /api/tasks/[id]:', message);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Server error';
+    console.error('Error in DELETE /api/tasks:', message);
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
