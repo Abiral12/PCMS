@@ -87,7 +87,7 @@ export async function PUT(request: NextRequest) {
 
     const {
       id, name, email, department, role, position, password,
-      isPaused,              // <— NEW (optional)
+      isPaused,
     } = body || {};
 
     if (!id) {
@@ -112,63 +112,34 @@ export async function PUT(request: NextRequest) {
     if (typeof department === 'string') update.department = department || 'General';
     if (typeof role === 'string') update.role = role || 'Employee';
     if (typeof position === 'string') update.position = position || 'Employee';
-    if (typeof isPaused === 'boolean') update.isPaused = isPaused; // <— persist pause
+    if (typeof isPaused === 'boolean') update.isPaused = isPaused;
 
     if (typeof password === 'string' && password.trim().length > 0) {
       update.passwordHash = await hash(password, 12);
     }
 
-    const updated = await Employee.findByIdAndUpdate(id, { $set: update }, { new: true, runValidators: true }).lean();
+    // Exclude passwordHash from the returned doc
+    const updated = await Employee.findByIdAndUpdate(
+      id,
+      { $set: update },
+      {
+        new: true,
+        runValidators: true,
+        projection: { passwordHash: 0 },  // <-- key line
+      }
+    ).lean();
+
     if (!updated) {
       return NextResponse.json({ success: false, error: 'Failed to update employee' }, { status: 500 });
     }
 
-    const { passwordHash: _ph, ...withoutPass } = updated;
-    return NextResponse.json({ success: true, message: 'Employee updated successfully', employee: withoutPass });
-  } catch (error: any) {
-    console.error('Error updating employee:', error);
-    return NextResponse.json({ success: false, error: 'Internal server error: ' + error.message }, { status: 500 });
-  }
-}
-
-/** Delete employee (soft delete by default) */
-export async function DELETE(request: NextRequest) {
-  try {
-    await dbConnect();
-
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
-    const hard = searchParams.get('hard') === 'true'; // optional: /api/admin/employees?id=...&hard=true
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: 'Missing employee id' },
-        { status: 400 }
-      );
-    }
-
-    // Soft delete: set isActive=false so your GET (isActive: true) hides them
-    let result;
-    if (hard) {
-      // Hard delete (optional)
-      result = await Employee.findByIdAndDelete(id);
-    } else {
-      result = await Employee.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
-    }
-
-    if (!result) {
-      return NextResponse.json(
-        { success: false, error: 'Employee not found' },
-        { status: 404 }
-      );
-    }
-
     return NextResponse.json({
       success: true,
-      message: hard ? 'Employee permanently deleted' : 'Employee deactivated'
+      message: 'Employee updated successfully',
+      employee: updated,  // already has no passwordHash
     });
   } catch (error: any) {
-    console.error('Error deleting employee:', error);
+    console.error('Error updating employee:', error);
     return NextResponse.json(
       { success: false, error: 'Internal server error: ' + error.message },
       { status: 500 }
