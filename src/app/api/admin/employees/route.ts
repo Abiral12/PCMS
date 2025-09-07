@@ -3,6 +3,8 @@ import dbConnect from '@/lib/mongodb';
 import Employee from '@/models/Employee';
 import { hash } from 'bcryptjs';
 
+export const runtime = 'nodejs';
+
 export async function GET() {
   try {
     await dbConnect();
@@ -140,6 +142,84 @@ export async function PUT(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('Error updating employee:', error);
+    return NextResponse.json(
+      { success: false, error: 'Internal server error: ' + error.message },
+      { status: 500 }
+    );
+  }
+}
+
+/** Delete employee (soft by default; hard with ?hard=true) */
+export async function DELETE(request: NextRequest) {
+  try {
+    await dbConnect();
+
+    const { searchParams } = new URL(request.url);
+    const hardFlag = (searchParams.get('hard') || '').toLowerCase();
+    const hard = hardFlag === 'true' || hardFlag === '1' || hardFlag === 'yes';
+
+    // id can come from query (?id=...) or JSON body { id: "..." }
+    let id = searchParams.get('id');
+    if (!id) {
+      try {
+        const body = await request.json();
+        id = body?.id;
+      } catch {
+        /* no body provided; ignore */
+      }
+    }
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Missing employee id' },
+        { status: 400 }
+      );
+    }
+
+    // Soft delete (default): mark inactive + paused and hide passwordHash
+    if (!hard) {
+      const updated = await Employee.findByIdAndUpdate(
+        id,
+        { $set: { isActive: false, isPaused: true } },
+        {
+          new: true,
+          runValidators: true,
+          projection: { passwordHash: 0 },
+        }
+      ).lean();
+
+      if (!updated) {
+        return NextResponse.json(
+          { success: false, error: 'Employee not found' },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Employee deactivated successfully',
+        employee: updated,
+      });
+    }
+
+    // Hard delete: remove the document
+    const toDelete = await Employee.findById(id).select('-passwordHash');
+    if (!toDelete) {
+      return NextResponse.json(
+        { success: false, error: 'Employee not found' },
+        { status: 404 }
+      );
+    }
+
+    await toDelete.deleteOne();
+
+    return NextResponse.json({
+      success: true,
+      message: 'Employee permanently deleted',
+      employee: toDelete.toObject(),
+    });
+  } catch (error: any) {
+    console.error('Error deleting employee:', error);
     return NextResponse.json(
       { success: false, error: 'Internal server error: ' + error.message },
       { status: 500 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import Ping from '@/models/Ping'; // we'll create this model
-
+export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     await dbConnect();

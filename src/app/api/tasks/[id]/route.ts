@@ -6,6 +6,8 @@ import Task from '@/models/Task';
 import Employee from '@/models/Employee';
 import Role from '@/models/Role';
 
+export const runtime = 'nodejs';
+
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret_change_me';
 
 type Perms = {

@@ -5,6 +5,7 @@ import { Types, HydratedDocument } from 'mongoose';
 import dbConnect from '@/lib/mongodb';
 import Task from '@/models/Task';
 
+export const runtime = 'nodejs';
 type Params = { id: string };
 type Ctx = { params: Params } | { params: Promise<Params> };
 

@@ -4,6 +4,8 @@ import dbConnect from '@/lib/mongodb';
 import Task from '@/models/Task';
 import Employee from '@/models/Employee';
 
+export const runtime = 'nodejs';
+
 interface FlatUpdate {
   taskId: string;
   taskTitle: string;

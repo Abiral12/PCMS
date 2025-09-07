@@ -3,6 +3,7 @@ import connectToDB from '@/lib/mongodb';
 import Ping from '@/models/Ping';
 import Employee from '@/models/Employee';
 
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).end();
 
