@@ -1,47 +1,34 @@
+// lib/mongodb.ts
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
-}
-
-const uri: string = MONGODB_URI;
-
-interface MongooseCache {
-  conn: typeof mongoose | null;
-  promise: Promise<typeof mongoose> | null;
-}
+type MongooseConn = typeof mongoose;
+type MongoosePromise = Promise<MongooseConn>;
 
 declare global {
-  var mongoose: MongooseCache | undefined;
+  // eslint-disable-next-line no-var
+  var _mongooseCache: { conn: MongooseConn | null; promise: MongoosePromise | null } | undefined;
 }
 
-const cached: MongooseCache = global.mongoose || {
-  conn: null,
-  promise: null,
-};
+const cached = globalThis._mongooseCache ?? (globalThis._mongooseCache = { conn: null, promise: null });
 
-if (!global.mongoose) {
-  global.mongoose = cached;
-}
+export default async function dbConnect(): Promise<MongooseConn> {
+  if (cached.conn) return cached.conn;
 
-async function dbConnect(): Promise<typeof mongoose> {
-  if (cached.conn) {
-    return cached.conn;
+  const uri = process.env.MONGODB_URI;            // ← read lazily
+  if (!uri) {
+    // Throw only when a route actually tries to connect
+    throw new Error('MONGODB_URI is not set (check .env.local / deployment env).');
   }
 
   if (!cached.promise) {
-    const opts = {
-      bufferCommands: false,
-    };
-
-    cached.promise = mongoose.connect(uri, opts).then((mongoose) => {
-      return mongoose;
-    });
+    cached.promise = mongoose
+      .connect(uri, {
+        // dbName: process.env.MONGODB_DB, // uncomment if you use a separate DB name
+        bufferCommands: false,
+      })
+      .then((m) => m);
   }
+
   cached.conn = await cached.promise;
   return cached.conn;
 }
-
-export default dbConnect;
