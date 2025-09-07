@@ -971,6 +971,53 @@ async function loadLunchForDay(empId: string, yyyy_mm_dd: string) {
   }
 }
 
+// Place this inside AdminDashboard component, below the lunchRange state:
+// const [lunchRangeKind, setLunchRangeKind] = useState<'7d'|'30d'|'custom'>('30d');
+// const [lunchRangeStart, setLunchRangeStart] = useState<string>('');
+// const [lunchRangeEnd, setLunchRangeEnd] = useState<string>('');
+
+function computeLunchRange() {
+  // returns:
+  //  - from/to as yyyy-mm-dd (UTC day keys)
+  //  - fromISO/toISO as inclusive UTC bounds for the API
+  const today = new Date();
+  const toUTC = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const yyyy_mm_dd = (d: Date) => toUTC(d).toISOString().split('T')[0];
+
+  let start: Date;
+  let end: Date;
+
+  if (lunchRangeKind === '7d') {
+    end = toUTC(today);
+    start = new Date(end);
+    start.setUTCDate(end.getUTCDate() - 6); // include today -> 7 days total
+  } else if (lunchRangeKind === '30d') {
+    end = toUTC(today);
+    start = new Date(end);
+    start.setUTCDate(end.getUTCDate() - 29); // include today -> 30 days total
+  } else {
+    // custom
+    if (!lunchRangeStart || !lunchRangeEnd) {
+      throw new Error('Please pick a start and end date for the custom range.');
+    }
+    start = new Date(`${lunchRangeStart}T00:00:00.000Z`);
+    end = new Date(`${lunchRangeEnd}T00:00:00.000Z`);
+    if (end.getTime() < start.getTime()) {
+      throw new Error('End date must be on/after the start date.');
+    }
+  }
+
+  const from = yyyy_mm_dd(start);
+  const to = yyyy_mm_dd(end);
+
+  // Inclusive ISO bounds for the server
+  const fromISO = new Date(`${from}T00:00:00.000Z`).toISOString();
+  const toISO = new Date(`${to}T23:59:59.999Z`).toISOString();
+
+  return { from, to, fromISO, toISO };
+}
+
+
 
 async function loadLunchOverviewFor(empId: string) {
   try {
