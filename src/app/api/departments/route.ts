@@ -49,3 +49,69 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+
+export async function PUT(request: NextRequest) {
+  try {
+    await dbConnect();
+    const body = await request.json();
+
+    if (!body.id) {
+      return NextResponse.json(
+        { success: false, error: 'Department id is required' },
+        { status: 400 }
+      );
+    }
+
+    const updated = await Department.findByIdAndUpdate(
+      body.id,
+      { name: body.name, description: body.description },
+      { new: true }
+    );
+
+    if (!updated) {
+      return NextResponse.json(
+        { success: false, error: 'Department not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true, department: updated });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    await dbConnect();
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Department id is required' },
+        { status: 400 }
+      );
+    }
+
+    const deleted = await Department.findByIdAndDelete(id);
+
+    if (!deleted) {
+      return NextResponse.json(
+        { success: false, error: 'Department not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true, message: 'Department deleted' });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    );
+  }
+}

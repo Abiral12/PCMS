@@ -727,6 +727,8 @@ export default function AdminDashboard() {
     department: 'General', role: 'Employee', position: ''
   });
   const [newDepartment, setNewDepartment] = useState({ name: '', description: '' });
+  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
+
   const [newRole, setNewRole] = useState({
     name: '',
     department: 'General',
@@ -762,6 +764,13 @@ const [newTask, setNewTask] = useState<NewTaskForm>({
   const [sendingMsg, setSendingMsg] = useState(false);
   const [newMsg, setNewMsg] = useState({ subject: '', body: '', urgent: false });
 
+  // Messages / progress feed
+const [progressFeed, setProgressFeed] = useState<ProgressRow[]>([]);
+const [progressLoading, setProgressLoading] = useState(false);
+const [progressError, setProgressError] = useState<string | null>(null);
+const [progressDate, setProgressDate] = useState<string>(''); // yyyy-mm-dd (optional filter)
+
+
   // Export CSV state
   const [exportOpen, setExportOpen] = useState(false);
   const [exportKind, setExportKind] = useState<RangeKind>('monthly');
@@ -783,6 +792,134 @@ const [showLunchImage, setShowLunchImage] = useState<string | null>(null);
 const [lunchRangeKind, setLunchRangeKind] = useState<'7d'|'30d'|'custom'>('30d');
 const [lunchRangeStart, setLunchRangeStart] = useState<string>(''); // yyyy-mm-dd
 const [lunchRangeEnd, setLunchRangeEnd] = useState<string>('');     // yyyy-mm-dd
+
+type FeedMode = 'unified' | 'progress' | 'broadcasts';
+const [feedMode, setFeedMode] = useState<FeedMode>('unified');
+
+type FeedItem = {
+  kind: 'progress' | 'broadcast';
+  ts: string;
+  title: string;
+  who?: string;
+  body: string;
+  urgent?: boolean;
+};
+
+const unifiedFeed = useMemo<FeedItem[]>(() => {
+  const a: FeedItem[] = (progressFeed || []).map(p => ({
+    kind: 'progress',
+    ts: p.timestamp,
+    title: p.taskTitle || 'Task update',
+    who: p.employeeName || 'Unknown',
+    body: p.message,
+  }));
+  const b: FeedItem[] = (messages || []).map(m => ({
+    kind: 'broadcast',
+    ts: m.createdAt,
+    title: m.subject,
+    who: m.createdByName || 'Admin',
+    body: m.body,
+    urgent: !!m.urgent,
+  }));
+  return [...a, ...b].sort((x, y) => new Date(y.ts).getTime() - new Date(x.ts).getTime());
+}, [progressFeed, messages]);
+
+
+const authHeaders = (): HeadersInit => {
+  try {
+    const raw = localStorage.getItem('employee');
+    const id = raw ? JSON.parse(raw).id : null;
+    return id ? { 'x-user-id': String(id) } : {};
+  } catch { return {}; }
+};
+
+
+const startEditDepartment = (dept: Department) => {
+  setEditingDepartment(dept);
+  setNewDepartment({ name: dept.name, description: dept.description || '' });
+  setShowDepartmentForm(true);
+};
+
+const cancelDepartmentForm = () => {
+  setEditingDepartment(null);
+  setNewDepartment({ name: '', description: '' });
+  setShowDepartmentForm(false);
+};
+
+const handleUpdateDepartment = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!editingDepartment) return;
+
+  try {
+    setCreating(true);
+    const res = await fetch('/api/departments', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      body: JSON.stringify({
+        id: editingDepartment._id,
+        name: newDepartment.name,
+        description: newDepartment.description,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data?.error) throw new Error(data?.error || 'Failed to update department');
+
+    setEditingDepartment(null);
+    setNewDepartment({ name: '', description: '' });
+    setShowDepartmentForm(false);
+    await fetchData();
+    show('Department updated');
+  } catch (err: any) {
+    setError(err.message || 'Failed to update department');
+    show(err.message || 'Failed to update department', 'error');
+  } finally {
+    setCreating(false);
+  }
+};
+
+const handleDeleteDepartment = async (deptId: string) => {
+  if (!confirm('Delete this department?')) return;
+  try {
+    const res = await fetch(`/api/departments?id=${deptId}`, {
+      method: 'DELETE',
+      headers: { ...buildAuthHeaders() },
+    });
+    const data = await res.json();
+    if (!res.ok || data?.error) throw new Error(data?.error || 'Failed to delete department');
+
+    await fetchData();
+    show('Department deleted');
+  } catch (err: any) {
+    setError(err.message || 'Failed to delete department');
+    show(err.message || 'Failed to delete department', 'error');
+  }
+};
+
+
+async function fetchProgressUpdates(date?: string) {
+  try {
+    setProgressLoading(true);
+    setProgressError(null);
+
+    const qs = new URLSearchParams({ limit: '100' });
+    if (date) qs.set('date', date);           // backend supports ?date=YYYY-MM-DD
+    const res = await fetch(`/api/tasks/progress?${qs}`, { headers: { ...authHeaders() } });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load progress updates');
+
+    setProgressFeed(Array.isArray(data.updates) ? data.updates : []);
+  } catch (e:any) {
+    setProgressError(e.message || 'Failed to load progress updates');
+  } finally {
+    setProgressLoading(false);
+  }
+}
+
+useEffect(() => {
+  if (activeTab === 'messages') {
+    fetchProgressUpdates(progressDate || undefined);
+  }
+}, [activeTab, progressDate]);
 
 
 function toISODate(d: Date) { return d.toISOString().split('T')[0]; }
@@ -1861,100 +1998,231 @@ function splitISOToLocalDateTime(iso: string) {
 
         {/* Messages */}
         {activeTab === 'messages' && (
-          <section className="card">
-            <div className="card-header">
-              <h2>Broadcast Messages</h2>
-            </div>
+  <section className="card">
+    <div className="card-header" style={{ alignItems: 'center', gap: 8 }}>
+      <h2 style={{ margin: 0 }}>Messages & Progress</h2>
 
-            <div className="subcard">
-              <h3>Send a message to all employees</h3>
-              <form onSubmit={sendBroadcast} className="form grid">
-                <div className="field">
-                  <label>Subject</label>
-                  <input
-                    className="input"
-                    type="text"
-                    maxLength={120}
-                    value={newMsg.subject}
-                    onChange={(e) => setNewMsg({ ...newMsg, subject: e.target.value })}
-                    placeholder="Company update, urgent notice, etc."
-                    required
-                    disabled={sendingMsg}
-                  />
-                </div>
-                <div className="field">
-                  <label>Message</label>
-                  <textarea
-                    className="input textarea"
-                    rows={5}
-                    value={newMsg.body}
-                    onChange={(e) => setNewMsg({ ...newMsg, body: e.target.value })}
-                    placeholder="Write your announcement…"
-                    required
-                    disabled={sendingMsg}
-                  />
-                  <small className="muted">
-                    Tip: Keep it short. Employees will see it in their inbox/notifications.
-                  </small>
-                </div>
-                <label className="checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={newMsg.urgent}
-                    onChange={(e) => setNewMsg({ ...newMsg, urgent: e.target.checked })}
-                    disabled={sendingMsg}
-                  />
-                  <span>Mark as urgent</span>
-                </label>
-                <div className="actions">
-                  <button type="submit" className={`btn ${sendingMsg ? 'secondary' : 'primary'}`} disabled={sendingMsg}>
-                    {sendingMsg ? 'Sending…' : 'Send to All Employees'}
-                  </button>
-                </div>
-              </form>
-            </div>
+      {/* Mode toggle */}
+      <div className="actions" style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <button
+          className={`btn ${feedMode === 'unified' ? 'primary' : 'secondary'} small`}
+          onClick={() => setFeedMode('unified')}
+        >
+          Unified
+        </button>
+        <button
+          className={`btn ${feedMode === 'progress' ? 'primary' : 'secondary'} small`}
+          onClick={() => setFeedMode('progress')}
+        >
+          Progress
+        </button>
+        <button
+          className={`btn ${feedMode === 'broadcasts' ? 'primary' : 'secondary'} small`}
+          onClick={() => setFeedMode('broadcasts')}
+        >
+          Broadcasts
+        </button>
+      </div>
+    </div>
 
-            <div className="card-header">
-              <h3>Previous Broadcasts</h3>
-              {loadingMessages ? <span className="hm-pill hm-gray">Loading…</span> :
-                <span className="hm-pill hm-blue">{messages.length}</span>}
-            </div>
+    {/* Controls for Progress filter (only shown when Unified or Progress) */}
+    {(feedMode === 'unified' || feedMode === 'progress') && (
+      <div className="subcard" style={{ marginBottom: 12 }}>
+        <div className="card-header" style={{ gap: 8 }}>
+          <h3 style={{ margin: 0 }}>Progress Updates</h3>
+          <div className="actions" style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <input
+              className="input"
+              type="date"
+              value={progressDate}
+              onChange={(e) => setProgressDate(e.target.value)}
+              aria-label="Filter by date"
+            />
+            <button
+              className="btn secondary"
+              onClick={() => fetchProgressUpdates(progressDate || undefined)}
+              disabled={progressLoading}
+            >
+              {progressLoading ? 'Loading…' : 'Reload'}
+            </button>
+            <button
+              className="btn secondary"
+              onClick={() => { setProgressDate(''); fetchProgressUpdates(); }}
+              disabled={progressLoading}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
 
-            {messages.length === 0 ? (
-              <p className="empty">No messages yet</p>
+        {progressError && (
+          <div className="error-box">
+            <span>{progressError}</span>
+            <button
+              onClick={() => fetchProgressUpdates(progressDate || undefined)}
+              className="btn danger small"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {feedMode === 'progress' && (
+          <>
+            {progressLoading ? (
+              <p className="muted">Loading…</p>
+            ) : (progressFeed.length === 0 ? (
+              <p className="empty">
+                No progress updates{progressDate ? ` on ${new Date(progressDate).toDateString()}` : ''}.
+              </p>
             ) : (
               <div className="table-wrap">
                 <table className="table">
                   <thead>
-                    <tr>
-                      <th>Sent</th>
-                      <th>Subject</th>
-                      <th>Urgent</th>
-                      <th>Recipients</th>
-                      <th>By</th>
-                    </tr>
+                    <tr><th>Time</th><th>Employee</th><th>Task</th><th>Update</th></tr>
                   </thead>
                   <tbody>
-                    {messages.map((m) => (
-                      <tr key={m._id}>
-                        <td>{new Date(m.createdAt).toLocaleString()}</td>
-                        <td>
-                          <details>
-                            <summary><strong>{m.subject}</strong></summary>
-                            <div className="msg-body">{m.body}</div>
-                          </details>
-                        </td>
-                        <td>{m.urgent ? <span className="badge badge-red">URGENT</span> : <span className="badge badge-gray">Normal</span>}</td>
-                        <td>{m.recipientCount ?? employees.length}</td>
-                        <td>{m.createdByName || 'Admin'}</td>
+                    {progressFeed.map((p) => (
+                      <tr key={`${p.taskId}-${p.timestamp}`}>
+                        <td>{new Date(p.timestamp).toLocaleString()}</td>
+                        <td>{p.employeeName || 'Unknown'}</td>
+                        <td>{p.taskTitle || 'Untitled task'}</td>
+                        <td>{p.message}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            )}
-          </section>
+            ))}
+          </>
         )}
+      </div>
+    )}
+
+    {/* Broadcast composer + history (hidden if Progress-only mode) */}
+    {feedMode !== 'progress' && (
+      <>
+        <div className="subcard">
+          <h3>Send a message to all employees</h3>
+          <form onSubmit={sendBroadcast} className="form grid">
+            <div className="field">
+              <label>Subject</label>
+              <input
+                className="input"
+                type="text"
+                maxLength={120}
+                value={newMsg.subject}
+                onChange={(e) => setNewMsg({ ...newMsg, subject: e.target.value })}
+                placeholder="Company update, urgent notice, etc."
+                required
+                disabled={sendingMsg}
+              />
+            </div>
+            <div className="field">
+              <label>Message</label>
+              <textarea
+                className="input textarea"
+                rows={5}
+                value={newMsg.body}
+                onChange={(e) => setNewMsg({ ...newMsg, body: e.target.value })}
+                placeholder="Write your announcement…"
+                required
+                disabled={sendingMsg}
+              />
+              <small className="muted">Tip: Keep it short.</small>
+            </div>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={newMsg.urgent}
+                onChange={(e) => setNewMsg({ ...newMsg, urgent: e.target.checked })}
+                disabled={sendingMsg}
+              />
+              <span>Mark as urgent</span>
+            </label>
+            <div className="actions">
+              <button type="submit" className={`btn ${sendingMsg ? 'secondary' : 'primary'}`} disabled={sendingMsg}>
+                {sendingMsg ? 'Sending…' : 'Send to All Employees'}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div className="card-header">
+          <h3>Previous Broadcasts</h3>
+          {loadingMessages ? <span className="hm-pill hm-gray">Loading…</span> :
+            <span className="hm-pill hm-blue">{messages.length}</span>}
+        </div>
+
+        {messages.length === 0 ? (
+          <p className="empty">No messages yet</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Sent</th>
+                  <th>Subject</th>
+                  <th>Urgent</th>
+                  <th>Recipients</th>
+                  <th>By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {messages.map((m) => (
+                  <tr key={m._id}>
+                    <td>{new Date(m.createdAt).toLocaleString()}</td>
+                    <td>
+                      <details>
+                        <summary><strong>{m.subject}</strong></summary>
+                        <div className="msg-body">{m.body}</div>
+                      </details>
+                    </td>
+                    <td>{m.urgent ? <span className="badge badge-red">URGENT</span> : <span className="badge badge-gray">Normal</span>}</td>
+                    <td>{m.recipientCount ?? employees.length}</td>
+                    <td>{m.createdByName || 'Admin'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>
+    )}
+
+    {/* Unified timeline (only when feedMode === 'unified') */}
+    {feedMode === 'unified' && (
+      <div className="subcard" style={{ marginTop: 16 }}>
+        <h3>Unified Feed</h3>
+        {progressLoading && loadingMessages ? (
+          <p className="muted">Loading…</p>
+        ) : unifiedFeed.length === 0 ? (
+          <p className="empty">Nothing to show yet.</p>
+        ) : (
+          <div className="hm-feed">
+            {unifiedFeed.map((item, idx) => (
+              <div key={`${item.kind}-${idx}-${item.ts}`} className="hm-feed-item">
+                <div className="hm-feed-line">
+                  <strong>{item.who}</strong>
+                  <span className="hm-feed-dot">•</span>
+                  <em>{item.title}</em>
+                  <span className="hm-feed-dot">•</span>
+                  {item.kind === 'broadcast'
+                    ? (item.urgent ? <span className="badge badge-red">URGENT</span> : <span className="badge badge-gray">Broadcast</span>)
+                    : <span className="badge badge-blue">Progress</span>
+                  }
+                </div>
+                <div className="hm-feed-msg">{item.body}</div>
+                <small className="hm-feed-time">{new Date(item.ts).toLocaleString()}</small>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
+  </section>
+)}
+
 
         {/* Employees */}
         {activeTab === 'employees' && (
@@ -2124,58 +2392,85 @@ function splitISOToLocalDateTime(iso: string) {
             </div>
 
             {showDepartmentForm && (
-              <div className="subcard">
-                <h3>Create New Department</h3>
-                <form onSubmit={handleCreateDepartment} className="form grid">
-                  <div className="field">
-                    <label>Name</label>
-                    <input
-                      className="input"
-                      type="text"
-                      value={newDepartment.name}
-                      onChange={(e) => setNewDepartment({ ...newDepartment, name: e.target.value })}
-                      required
-                      disabled={creating}
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Description</label>
-                    <textarea
-                      className="input textarea"
-                      value={newDepartment.description}
-                      onChange={(e) => setNewDepartment({ ...newDepartment, description: e.target.value })}
-                      disabled={creating}
-                    />
-                  </div>
-                  <div className="actions">
-                    <button type="submit" disabled={creating} className={`btn ${creating ? 'secondary' : 'primary'}`}>
-                      {creating ? 'Creating…' : 'Create Department'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
+  <div className="subcard">
+    <h3>{editingDepartment ? 'Edit Department' : 'Create New Department'}</h3>
+    <form
+      onSubmit={editingDepartment ? handleUpdateDepartment : handleCreateDepartment}
+      className="form grid"
+    >
+      <div className="field">
+        <label>Name</label>
+        <input
+          className="input"
+          type="text"
+          value={newDepartment.name}
+          onChange={(e) => setNewDepartment({ ...newDepartment, name: e.target.value })}
+          required
+          disabled={creating}
+        />
+      </div>
+      <div className="field">
+        <label>Description</label>
+        <textarea
+          className="input textarea"
+          value={newDepartment.description}
+          onChange={(e) => setNewDepartment({ ...newDepartment, description: e.target.value })}
+          disabled={creating}
+        />
+      </div>
+      <div className="actions">
+        <button
+          type="submit"
+          disabled={creating}
+          className={`btn ${creating ? 'secondary' : 'primary'}`}
+        >
+          {creating
+            ? (editingDepartment ? 'Updating…' : 'Creating…')
+            : (editingDepartment ? 'Update Department' : 'Create Department')}
+        </button>
+        <button
+          type="button"
+          onClick={cancelDepartmentForm}
+          className="btn secondary"
+          disabled={creating}
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  </div>
+)}
 
-            <h3>Departments ({departments.length})</h3>
-            {departments.length === 0 ? (
-              <p className="empty">No departments found</p>
-            ) : (
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr><th>Name</th><th>Description</th></tr>
-                  </thead>
-                  <tbody>
-                    {departments.map((d) => (
-                      <tr key={d._id}>
-                        <td>{d.name}</td>
-                        <td>{d.description || 'No description'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+
+           <h3>Departments ({departments.length})</h3>
+{departments.length === 0 ? (
+  <p className="empty">No departments found</p>
+) : (
+  <div className="table-wrap">
+    <table className="table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {departments.map((d) => (
+          <tr key={d._id}>
+            <td>{d.name}</td>
+            <td>{d.description || 'No description'}</td>
+            <td className="table-actions">
+              <button onClick={() => startEditDepartment(d)} className="btn info small">Edit</button>
+              <button onClick={() => handleDeleteDepartment(d._id)} className="btn danger small">Delete</button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}
+
           </section>
         )}
 
