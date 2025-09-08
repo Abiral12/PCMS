@@ -1248,10 +1248,11 @@ useEffect(() => {
     try {
       setSendingMsg(true);
       const res = await fetch('/api/messages/broadcast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
-        body: JSON.stringify(newMsg),
-      });
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(newMsg),
+  credentials: 'include',
+});
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send');
 
