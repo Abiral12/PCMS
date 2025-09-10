@@ -327,6 +327,8 @@ function HolidaysModal({
     { taskTitle: string; employeeName: string; message: string; timestamp: string }[]
   >([]);
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
+  
+
 
   
 
@@ -792,6 +794,10 @@ const [showLunchImage, setShowLunchImage] = useState<string | null>(null);
 const [lunchRangeKind, setLunchRangeKind] = useState<'7d'|'30d'|'custom'>('30d');
 const [lunchRangeStart, setLunchRangeStart] = useState<string>(''); // yyyy-mm-dd
 const [lunchRangeEnd, setLunchRangeEnd] = useState<string>('');     // yyyy-mm-dd
+
+const [deletingId, setDeletingId] = useState<string | null>(null);
+
+
 
 type FeedMode = 'unified' | 'progress' | 'broadcasts';
 const [feedMode, setFeedMode] = useState<FeedMode>('unified');
@@ -1833,6 +1839,26 @@ const startEditingTask = (t: Task) => {
   }
 };
 
+const handleDeleteBroadcast = async (id: string) => {
+  if (!confirm('Delete this broadcast?')) return;
+  try {
+    setDeletingId(id);
+    const res = await fetch(`/api/messages/${id}`, {
+      method: 'DELETE',
+      headers: { ...buildAuthHeaders() },
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Failed to delete');
+    // instant UI update
+    setMessages(prev => prev.filter(m => m._id !== id));
+    show('Message deleted');
+  } catch (e: any) {
+    show(e?.message || 'Failed to delete', 'error');
+  } finally {
+    setDeletingId(null);
+  }
+};
 
   const handleDeleteTask = async (taskId: string) => {
     if (!confirm('Delete this task?')) return;
@@ -2217,21 +2243,31 @@ function splitISOToLocalDateTime(iso: string) {
                 </tr>
               </thead>
               <tbody>
-                {messages.map((m) => (
-                  <tr key={m._id}>
-                    <td>{new Date(m.createdAt).toLocaleString()}</td>
-                    <td>
-                      <details>
-                        <summary><strong>{m.subject}</strong></summary>
-                        <div className="msg-body">{m.body}</div>
-                      </details>
-                    </td>
-                    <td>{m.urgent ? <span className="badge badge-red">URGENT</span> : <span className="badge badge-gray">Normal</span>}</td>
-                    <td>{m.recipientCount ?? employees.length}</td>
-                    <td>{m.createdByName || 'Admin'}</td>
-                  </tr>
-                ))}
-              </tbody>
+  {messages.map((m) => (
+    <tr key={m._id}>
+      <td>{new Date(m.createdAt).toLocaleString()}</td>
+      <td>
+        <details>
+          <summary><strong>{m.subject}</strong></summary>
+          <div className="msg-body">{m.body}</div>
+        </details>
+      </td>
+      <td>{m.urgent ? <span className="badge badge-red">URGENT</span> : <span className="badge badge-gray">Normal</span>}</td>
+      <td>{m.recipientCount ?? employees.length}</td>
+      <td>{m.createdByName || 'Admin'}</td>
+      <td className="table-actions">
+        <button
+          onClick={() => handleDeleteBroadcast(m._id)}
+          className="btn danger small"
+          disabled={deletingId === m._id}
+        >
+          {deletingId === m._id ? 'Deleting…' : 'Delete'}
+        </button>
+      </td>
+    </tr>
+  ))}
+</tbody>
+
             </table>
           </div>
         )}
