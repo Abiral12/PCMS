@@ -113,6 +113,7 @@ interface Role {
     canManageDepartments: boolean;
     canManageRoles: boolean;
     canAssignTasks: boolean;
+    canAssignTasksAllDepartments?: boolean;
     canViewAllTasks: boolean;
     canViewTasks: boolean;
     canViewReports: boolean;
@@ -740,6 +741,7 @@ export default function AdminDashboard() {
       canManageDepartments: false,
       canManageRoles: false,
       canAssignTasks: false,
+      canAssignTasksAllDepartments: false,
       canViewAllTasks: false,
       canViewTasks: true,
       canViewReports: false,
@@ -796,6 +798,100 @@ const [lunchRangeStart, setLunchRangeStart] = useState<string>(''); // yyyy-mm-d
 const [lunchRangeEnd, setLunchRangeEnd] = useState<string>('');     // yyyy-mm-dd
 
 const [deletingId, setDeletingId] = useState<string | null>(null);
+
+// ===== Admin Settings state =====
+const [settingsLoading, setSettingsLoading] = useState(false);
+const [settingsSaving, setSettingsSaving] = useState(false);
+const [settingsError, setSettingsError] = useState<string | null>(null);
+
+const [settingsUsername, setSettingsUsername] = useState(''); // current username from server
+const [newUsername, setNewUsername] = useState('');           // optional change
+const [currentPassword, setCurrentPassword] = useState('');   // required if changing password
+const [newPassword, setNewPassword] = useState('');           // optional change
+const [confirmPassword, setConfirmPassword] = useState('');   // confirm new password
+
+
+async function fetchAdminSettings() {
+  try {
+    setSettingsLoading(true);
+    setSettingsError(null);
+    const res = await fetch('/api/admin/settings', {
+      method: 'GET',
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.success) throw new Error(data?.error || `Failed to load settings (${res.status})`);
+    const uname = data.data?.username || '';
+    setSettingsUsername(uname);
+    setNewUsername(uname); // prefill with current
+  } catch (e: any) {
+    setSettingsError(e?.message || 'Failed to load settings');
+  } finally {
+    setSettingsLoading(false);
+  }
+}
+
+async function saveAdminSettings(e: React.FormEvent) {
+  e.preventDefault();
+
+  // Basic client validation
+  if (newPassword || confirmPassword) {
+    if (!currentPassword) {
+      show('Current password is required to set a new password', 'error');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      show('New password and confirm password do not match', 'error');
+      return;
+    }
+    if (newPassword.length < 8) {
+      show('New password must be at least 8 characters', 'error');
+      return;
+    }
+  }
+
+  try {
+    setSettingsSaving(true);
+    setSettingsError(null);
+
+    const payload: any = {};
+    if (newUsername && newUsername !== settingsUsername) payload.username = newUsername.trim();
+    if (newPassword) {
+      payload.currentPassword = currentPassword;
+      payload.newPassword = newPassword;
+    }
+
+    if (!Object.keys(payload).length) {
+      show('Nothing to update', 'error');
+      return;
+    }
+
+    const res = await fetch('/api/admin/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to update settings');
+
+    // Success: reflect any username change and clear password fields
+    if (payload.username) {
+      setSettingsUsername(payload.username);
+      setNewUsername(payload.username);
+    }
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+
+    show('Admin settings updated');
+  } catch (e: any) {
+    setSettingsError(e?.message || 'Failed to update settings');
+    show(e?.message || 'Failed to update settings', 'error');
+  } finally {
+    setSettingsSaving(false);
+  }
+}
 
 
 
@@ -1192,20 +1288,23 @@ useEffect(() => {
     return rows;
   }, [filteredAttendance]);
 
+  const adminFetch = (url: string, init: RequestInit = {}) =>
+  fetch(url, { credentials: 'include', ...init });
+
   const fetchData = async () => {
     setError(null);
     setLoading(true);
     try {
-      const headersOnlyAuth = { ...buildAuthHeaders() };
+      // const headersOnlyAuth = { ...buildAuthHeaders() };
 
-      const results = await Promise.allSettled([
-        fetch('/api/admin/employees', { headers: headersOnlyAuth }),
-        fetch('/api/departments',     { headers: headersOnlyAuth }),
-        fetch('/api/roles',           { headers: headersOnlyAuth }),
-        fetch('/api/tasks',           { headers: headersOnlyAuth }),
-        fetch('/api/admin/attendance',{ headers: headersOnlyAuth }),
-        fetch('/api/lunchtimes',      { headers: headersOnlyAuth }),
-      ]);
+const results = await Promise.allSettled([
+  adminFetch('/api/admin/employees'),
+  adminFetch('/api/departments'),
+  adminFetch('/api/roles'),
+  adminFetch('/api/admin/tasks'), 
+  adminFetch('/api/admin/attendance'),
+  adminFetch('/api/lunchtimes'),
+]);
 
       const parseResult = async (r: PromiseSettledResult<Response>) => {
         if (r.status === 'fulfilled') {
@@ -1653,7 +1752,7 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
     setNewRole({
       name: role.name,
       department: role.department,
-      permissions: { ...role.permissions, canViewTasks: role.permissions.canViewTasks ?? true },
+      permissions: { ...role.permissions, canViewTasks: role.permissions.canViewTasks ?? true,canAssignTasksAllDepartments: !!role.permissions.canAssignTasksAllDepartments, },
     });
     setShowRoleForm(true);
   };
@@ -1860,16 +1959,21 @@ const handleDeleteBroadcast = async (id: string) => {
   }
 };
 
-  const handleDeleteTask = async (taskId: string) => {
-    if (!confirm('Delete this task?')) return;
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE', headers: { ...buildAuthHeaders() } });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to delete task');
-      await fetchData();
-      show('Task deleted');
-    } catch (e: any) { setError(e.message); show(e.message, 'error'); }
-  };
+const handleDeleteTask = async (taskId: string) => {
+  if (!confirm('Delete this task?')) return;
+  try {
+    const res = await fetch(`/api/tasks?id=${taskId}`, {   // ← use ?id=
+      method: 'DELETE',
+      headers: { ...buildAuthHeaders() },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to delete task');
+    await fetchData();
+    show('Task deleted');
+  } catch (e: any) {
+    setError(e.message); show(e.message, 'error');
+  }
+};
 
   /* ======= Attendance (simple export) ======= */
   const exportToCSV = () => {
@@ -1933,20 +2037,22 @@ function splitISOToLocalDateTime(iso: string) {
         </div>
       </header>
 
-      <nav className="tabs">
-        {['attendance', 'employees', 'departments', 'roles', 'tasks', 'lunchTime', 'messages'].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => {
-              setActiveTab(tab);
-              if (tab === 'messages') fetchMessages();
-            }}
-            className={`tab ${activeTab === tab ? 'active' : ''}`}
-          >
-            {tab}
-          </button>
-        ))}
-      </nav>
+     <nav className="tabs">
+  {['attendance', 'employees', 'departments', 'roles', 'tasks', 'lunchTime', 'messages', 'settings'].map((tab) => (
+    <button
+      key={tab}
+      onClick={() => {
+        setActiveTab(tab);
+        if (tab === 'messages') fetchMessages();
+        if (tab === 'settings') fetchAdminSettings(); // ← load settings when opened
+      }}
+      className={`tab ${activeTab === tab ? 'active' : ''}`}
+    >
+      {tab}
+    </button>
+  ))}
+</nav>
+
 
       <main className="content">
         {error && (
@@ -2623,7 +2729,10 @@ function splitISOToLocalDateTime(iso: string) {
                                 permissions: { ...newRole.permissions, [permission]: e.target.checked },
                               })
                             }
-                            disabled={creating}
+                            disabled={
+        creating ||
+        (permission === 'canAssignTasksAllDepartments' && !newRole.permissions.canAssignTasks) // ← NEW
+      }
                           />
                           <span>
                             {permission.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())}
@@ -2972,6 +3081,99 @@ function splitISOToLocalDateTime(iso: string) {
             )}
           </section>
         )}
+
+        {activeTab === 'settings' && (
+  <section className="card">
+    <div className="card-header">
+      <h2>Admin Settings</h2>
+    </div>
+
+    {settingsError && (
+      <div className="error-box">
+        <span>{settingsError}</span>
+        <button onClick={fetchAdminSettings} className="btn danger small">Retry</button>
+      </div>
+    )}
+
+    {settingsLoading ? (
+      <p className="muted">Loading…</p>
+    ) : (
+      <div className="subcard">
+        <h3>Update Admin Username / Password</h3>
+        <form onSubmit={saveAdminSettings} className="form grid">
+          <div className="field">
+            <label>Current Username</label>
+            <input className="input" type="text" value={settingsUsername} readOnly />
+            <small className="muted">This is the username currently stored in the database.</small>
+          </div>
+
+          <div className="field">
+            <label>New Username (optional)</label>
+            <input
+              className="input"
+              type="text"
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              placeholder="Enter new username"
+              disabled={settingsSaving}
+            />
+          </div>
+
+          <div className="field">
+            <label>Current Password (required if changing password)</label>
+            <input
+              className="input"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Enter current password"
+              disabled={settingsSaving}
+            />
+          </div>
+
+          <div className="field">
+            <label>New Password (optional)</label>
+            <input
+              className="input"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="At least 8 characters"
+              disabled={settingsSaving}
+            />
+          </div>
+
+          <div className="field">
+            <label>Confirm New Password</label>
+            <input
+              className="input"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Re-type new password"
+              disabled={settingsSaving}
+            />
+          </div>
+
+          <div className="actions">
+            <button type="submit" className={`btn ${settingsSaving ? 'secondary' : 'primary'}`} disabled={settingsSaving}>
+              {settingsSaving ? 'Saving…' : 'Save Changes'}
+            </button>
+            <button type="button" className="btn secondary" onClick={fetchAdminSettings} disabled={settingsSaving}>
+              Reset
+            </button>
+          </div>
+
+          <small className="muted">
+            Tip: If you change the password, you’ll need the <em>current password</em> to authorize the change. After changing
+            credentials, you may be asked to re-login on the next session.
+          </small>
+        </form>
+      </div>
+    )}
+  </section>
+)}
+
       </main>
 {inspectEmployee && (
   <div className="modal-backdrop">

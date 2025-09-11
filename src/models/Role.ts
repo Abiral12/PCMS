@@ -9,6 +9,7 @@ export interface IPermissions {
   canViewAllTasks: boolean;
   canViewTasks: boolean;  
   canViewReports: boolean;
+  canAssignTasksAllDepartments: boolean;
 }
 
 export interface IRole extends Document {
@@ -25,6 +26,7 @@ const PermissionsSchema: Schema = new Schema({
   canManageDepartments: { type: Boolean, default: false },
   canManageRoles: { type: Boolean, default: false },
   canAssignTasks: { type: Boolean, default: false },
+  canAssignTasksAllDepartments: { type: Boolean, default: false },
   canViewAllTasks: { type: Boolean, default: false },
   canViewTasks: { type: Boolean, default: true }, 
   canViewReports: { type: Boolean, default: false }

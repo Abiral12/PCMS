@@ -340,7 +340,7 @@ function buildAuthHeaders(): Record<string, string> {
         perms.canManageEmployees ? fetch('/api/admin/employees', { headers: { 'x-user-id': empId } }) : Promise.resolve(null),
         perms.canManageDepartments ? fetch('/api/departments', { headers: { 'x-user-id': empId } }) : Promise.resolve(null),
         (perms.canManageRoles || perms.canAssignTasks || perms.canViewAllTasks) ? fetch('/api/roles', { headers: { 'x-user-id': empId } }) : Promise.resolve(null),
-        (perms.canViewAllTasks || perms.canAssignTasks) ? fetch('/api/tasks', { headers: { 'x-user-id': empId } }) : Promise.resolve(null),
+        (perms.canViewAllTasks || perms.canAssignTasks) ? fetch('/api/admin/tasks', { headers: { 'x-user-id': empId } }) : Promise.resolve(null),
       ]);
 
       if (eRes && eRes.ok) setEmployees((await eRes.json()).employees || []);
