@@ -1,6 +1,6 @@
 'use client';
 import CheckInOut from '@/components/CheckInOut';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback} from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CheckCircle, PlayCircle, Plus, Calendar as CalendarIcon, Clock,
@@ -56,6 +56,7 @@ type Permissions = {
   canManageDepartments: boolean;
   canManageRoles: boolean;
   canAssignTasks: boolean;
+  canAssignTasksAllDepartments: boolean;
   canViewAllTasks: boolean;
   canViewTasks: boolean;
   canViewReports: boolean;
@@ -78,6 +79,7 @@ const PERM_DEFAULTS: Permissions = {
   canManageDepartments: false,
   canManageRoles: false,
   canAssignTasks: false,
+  canAssignTasksAllDepartments: false,
   canViewAllTasks: false,
   canViewTasks: false,
   canViewReports: false,
@@ -146,6 +148,7 @@ export default function Dashboard() {
       canManageDepartments: false,
       canManageRoles: false,
       canAssignTasks: false,
+      canAssignTasksAllDepartments: false,
       canViewAllTasks: false,
       canViewTasks: true,
       canViewReports: false,
@@ -718,7 +721,7 @@ async function addProgressUpdate(taskId: string, message: string) {
       <main className="main-content">
         <header className="content-header">
           <h1>Welcome back, {employeeName}</h1>
-          <p>Here's your daily overview</p>
+          <p>Here`s your daily overview</p>
         </header>
 
         {/* Urgent company announcement banner */}
@@ -1254,7 +1257,7 @@ async function addProgressUpdate(taskId: string, message: string) {
                         permissions: {
                           canCheckIn: true, canManageEmployees: false, canManageDepartments: false,
                           canManageRoles: false, canAssignTasks: false, canViewAllTasks: false,
-                          canViewTasks: true, canViewReports: false,
+                          canViewTasks: true, canViewReports: false,canAssignTasksAllDepartments: false,
                         },
                       });
                       setShowRoleForm(!showRoleForm);
