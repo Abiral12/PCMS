@@ -1737,7 +1737,7 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
         permissions: {
           canCheckIn: true, canManageEmployees: false, canManageDepartments: false,
           canManageRoles: false, canAssignTasks: false, canViewAllTasks: false,
-          canViewTasks: true, canViewReports: false,
+          canViewTasks: true, canViewReports: false, canAssignTasksAllDepartments: false,
         },
       });
       setShowRoleForm(false);
@@ -1776,7 +1776,7 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
         permissions: {
           canCheckIn: true, canManageEmployees: false, canManageDepartments: false,
           canManageRoles: false, canAssignTasks: false, canViewAllTasks: false,
-          canViewTasks: true, canViewReports: false,
+          canViewTasks: true, canViewReports: false, canAssignTasksAllDepartments: false,
         },
       });
       setShowRoleForm(false);
@@ -2678,7 +2678,7 @@ function splitISOToLocalDateTime(iso: string) {
                     permissions: {
                       canCheckIn: true, canManageEmployees: false, canManageDepartments: false,
                       canManageRoles: false, canAssignTasks: false, canViewAllTasks: false,
-                      canViewTasks: true, canViewReports: false,
+                      canViewTasks: true, canViewReports: false, canAssignTasksAllDepartments: false
                     },
                   });
                   setShowRoleForm(!showRoleForm);
