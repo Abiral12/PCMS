@@ -491,7 +491,7 @@ async function addProgressUpdate(taskId: string, message: string) {
         permissions: {
           canCheckIn: true, canManageEmployees: false, canManageDepartments: false,
           canManageRoles: false, canAssignTasks: false, canViewAllTasks: false,
-          canViewTasks: true, canViewReports: false,
+          canViewTasks: true, canViewReports: false, canAssignTasksAllDepartments: false,
         },
       });
       setShowRoleForm(false);
@@ -529,7 +529,7 @@ async function addProgressUpdate(taskId: string, message: string) {
         permissions: {
           canCheckIn: true, canManageEmployees: false, canManageDepartments: false,
           canManageRoles: false, canAssignTasks: false, canViewAllTasks: false,
-          canViewTasks: true, canViewReports: false,
+          canViewTasks: true, canViewReports: false, canAssignTasksAllDepartments: false,
         },
       });
       setShowRoleForm(false);
