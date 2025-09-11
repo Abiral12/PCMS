@@ -13,6 +13,7 @@ export const defaultPermissions: IPermissions = {
   canManageDepartments: false,
   canManageRoles: false,
   canAssignTasks: false,
+  canAssignTasksAllDepartments: false,
   canViewAllTasks: false,
   canViewTasks: true,
   canViewReports: false,
