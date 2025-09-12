@@ -22,6 +22,7 @@ import {
   Trash2,
   Edit3,
   RefreshCw,
+  Menu,
 } from "lucide-react";
 import LunchCam from "@/components/LaunchCamera";
 
@@ -233,6 +234,8 @@ export default function Dashboard() {
 
   const [pushReady, setPushReady] = useState<boolean>(false);
   const [pushError, setPushError] = useState<string | null>(null);
+
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const registerForPush = useCallback(async () => {
     try {
@@ -938,79 +941,77 @@ export default function Dashboard() {
 
   if (!employeeId) return null;
 
+
+  const go = (tab:
+  "dashboard" | "attendance" | "tasks" | "lunch" | "holidays" | "admin"
+) => {
+  setActiveTab(tab);
+  setIsMobileMenuOpen(false);
+};
+
   /* ================== Render ================== */
   return (
     <div className="dashboard-container">
+
+      {/* Mobile Menu Button */}
+      <button 
+        className="mobile-menu-btn"
+        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+      >
+        <Menu size={24} />
+      </button>
+
       {/* Sidebar */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${isMobileMenuOpen ? "mobile-open" : ""}`}>
         <div className="sidebar-header">
           <User size={20} />
           <span>Employee Portal</span>
+          <button 
+            className="sidebar-close-btn"
+            onClick={() => setIsMobileMenuOpen(false)}
+          >
+            <X size={20} />
+          </button>
         </div>
 
         <nav className="sidebar-nav">
-          <button
-            className={`nav-item ${activeTab === "dashboard" ? "active" : ""}`}
-            onClick={() => setActiveTab("dashboard")}
-          >
-            <BarChart3 size={18} />
-            <span>Dashboard</span>
-          </button>
-
-          <button
-            className={`nav-item ${activeTab === "attendance" ? "active" : ""}`}
-            onClick={() => setActiveTab("attendance")}
-          >
-            <Clock size={18} />
-            <span>Attendance</span>
-          </button>
-
-          {perms.canViewTasks && (
-            <button
-              className={`nav-item ${activeTab === "tasks" ? "active" : ""}`}
-              onClick={() => setActiveTab("tasks")}
-            >
-              <CheckSquare size={18} />
-              <span>Tasks</span>
-            </button>
-          )}
-
-          <button
-            className={`nav-item ${activeTab === "lunch" ? "active" : ""}`}
-            onClick={() => setActiveTab("lunch")}
-          >
-            <Utensils size={18} />
-            <span>Lunch</span>
-          </button>
-
-          <button
-            className={`nav-item ${activeTab === "holidays" ? "active" : ""}`}
-            onClick={() => setActiveTab("holidays")}
-          >
-            <CalendarIcon size={18} />
-            <span>Holidays</span>
-          </button>
-
-          {(perms.canManageEmployees ||
-            perms.canManageDepartments ||
-            perms.canManageRoles ||
-            perms.canAssignTasks ||
-            perms.canViewAllTasks) && (
-            <button
-              className={`nav-item ${activeTab === "admin" ? "active" : ""}`}
-              onClick={() => setActiveTab("admin")}
-            >
-              <Settings2 size={18} />
-              <span>Admin</span>
-            </button>
-          )}
+          <button className={`nav-item ${activeTab==="dashboard"?"active":""}`} onClick={() => go("dashboard")}>
+  <BarChart3 size={18}/> <span>Dashboard</span>
+</button>
+<button className={`nav-item ${activeTab==="attendance"?"active":""}`} onClick={() => go("attendance")}>
+  <Clock size={18}/> <span>Attendance</span>
+</button>
+{perms.canViewTasks && (
+  <button className={`nav-item ${activeTab==="tasks"?"active":""}`} onClick={() => go("tasks")}>
+    <CheckSquare size={18}/> <span>Tasks</span>
+  </button>
+)}
+<button className={`nav-item ${activeTab==="lunch"?"active":""}`} onClick={() => go("lunch")}>
+  <Utensils size={18}/> <span>Lunch</span>
+</button>
+<button className={`nav-item ${activeTab==="holidays"?"active":""}`} onClick={() => go("holidays")}>
+  <CalendarIcon size={18}/> <span>Holidays</span>
+</button>
+{(perms.canManageEmployees||perms.canManageDepartments||perms.canManageRoles||perms.canAssignTasks||perms.canViewAllTasks) && (
+  <button className={`nav-item ${activeTab==="admin"?"active":""}`} onClick={() => go("admin")}>
+    <Settings2 size={18}/> <span>Admin</span>
+  </button>
+)}
+          
         </nav>
 
-        <button className="logout-btn" onClick={handleLogout}>
-          <LogOut size={18} />
-          <span>Logout</span>
-        </button>
+        <div className="sidebar-footer">
+          <button className="logout-btn" onClick={handleLogout}>
+            <LogOut size={18} />
+            <span>Logout</span>
+          </button>
+        </div>
       </aside>
+
+     {isMobileMenuOpen && (
+  <div className="sidebar-backdrop" onClick={() => setIsMobileMenuOpen(false)} />
+)}
+
 
       {/* Main content */}
       <main className="main-content">
@@ -2333,6 +2334,146 @@ export default function Dashboard() {
 
       {/* Styles */}
       <style jsx>{`
+
+      :root{
+  --bg: #f6f8fb;
+  --bg-gradient: radial-gradient(1200px 600px at 20% -10%, #eef3ff 0%, transparent 60%),
+                  radial-gradient(900px 500px at 120% 20%, #f8efe9 0%, transparent 55%),
+                  linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%);
+  --card: #ffffff;
+  --muted: #6b7a90;
+  --brand: #3478f6;
+  --brand-600:#2b63cc;
+  --good:#27ae60;
+  --warn:#f39c12;
+  --bad:#e74c3c;
+  --ring: 0 0 0 3px rgba(52,120,246,.18);
+  --shadow-1: 0 8px 30px rgba(28,39,55,.08);
+  --shadow-2: 0 12px 40px rgba(28,39,55,.12);
+  --rad: 16px;
+}
+
+/* App shell */
+.dashboard-container{
+  background: var(--bg-gradient);
+}
+.main-content{
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Typography sizing that scales */
+.section-header h2{ font-size: clamp(18px, 2vw, 24px); }
+
+/* Sidebar polish */
+.sidebar{
+  backdrop-filter: saturate(120%) blur(6px);
+  border-right: 1px solid rgba(255,255,255,.08);
+}
+.sidebar-header{
+  padding-bottom: 16px;
+}
+.nav-item{
+  border-radius: 10px;
+  transition: transform .15s ease, background .2s ease, color .2s ease;
+}
+.nav-item:active{ transform: scale(.98); }
+
+
+
+
+/* Mobile: slide-in + backdrop */
+@media (max-width: 768px){
+  .sidebar{
+    transform: translateX(-100%);
+    position: fixed; top:0; left:0; height:100%; width: 84vw; max-width: 320px;
+    border-right: none;
+    box-shadow: var(--shadow-2);
+  }
+  .sidebar.mobile-open{ transform: translateX(0); }
+  .sidebar-backdrop{
+    position: fixed; inset: 0; background: rgba(17,24,39,.55);
+    backdrop-filter: blur(2px);
+    z-index: 999;
+  }
+  .mobile-menu-btn{ box-shadow: var(--shadow-1); }
+}
+
+/* Cards */
+.card, .welcome-card, .task-card, .lunch-card, .stat-card{
+  background: var(--card);
+  border-radius: var(--rad);
+  box-shadow: var(--shadow-1);
+  border: 1px solid rgba(15,23,42,.06);
+}
+.card:hover, .task-card:hover, .lunch-card:hover{
+  transform: translateY(-2px);
+  transition: transform .2s ease, box-shadow .2s ease;
+  box-shadow: var(--shadow-2);
+}
+
+/* Stats grid: nicer tiles */
+.stat-card h3{ color: var(--brand); }
+.stat-card p{ color: var(--muted); }
+
+/* Buttons: consistent focus rings + bigger tap targets */
+.btn, .primary-btn, .secondary-btn{
+  min-height: 40px;
+}
+.btn:focus-visible, .primary-btn:focus-visible, .secondary-btn:focus-visible, .logout-btn:focus-visible{
+  outline: none; box-shadow: var(--ring);
+}
+.btn.primary, .primary-btn{
+  background: linear-gradient(180deg, var(--brand), var(--brand-600));
+}
+.btn.secondary, .secondary-btn{
+  background: #edf2f7;
+}
+
+/* Badges */
+.badge{ box-shadow: inset 0 0 0 1px rgba(0,0,0,.04); }
+
+/* Announcement banner spacing on mobile */
+@media (max-width: 768px){
+  .urgent-banner{ align-items: stretch; }
+}
+
+/* Tasks grid: fit better on narrow screens */
+.tasks-grid{
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+/* Table wrapper: better scrollbar + spacing */
+.table-wrap{
+  border-radius: 14px;
+  box-shadow: var(--shadow-1);
+}
+.table thead th{ background: #f3f6fc; }
+.table tbody tr:hover{ background: #fafcff; }
+
+/* Modals: soften + center */
+.modal, .camera-modal{
+  border-radius: 18px;
+  box-shadow: var(--shadow-2);
+}
+
+/* Accessibility + motion */
+@media (prefers-reduced-motion: reduce){
+  *{ transition: none !important; animation: none !important; }
+}
+
+/* Safe-area padding (iOS notch) */
+@supports (padding: max(0px)){
+  .main-content{ padding-bottom: max(30px, env(safe-area-inset-bottom)); }
+}
+
+/* Compact screens: tighten gaps & font sizes */
+@media (max-width: 480px){
+  .card, .welcome-card{ padding: 14px; }
+  .task-actions .action-btn{ padding: 6px; }
+  .ann-item{ padding: 12px; }
+}
+
         /* Base */
         .dashboard-container {
           display: flex;
@@ -2390,27 +2531,7 @@ export default function Dashboard() {
         }
 
         /* 🔹 Fixed logout button */
-        .logout-btn {
-          position: fixed;
-          bottom: 20px;
-          left: 20px;
-          width: 240px;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          gap: 10px;
-          padding: 12px;
-          background: rgba(231, 76, 60, 0.8);
-          border: none;
-          color: #fff;
-          border-radius: 9999px;
-          cursor: pointer;
-          font-weight: 600;
-          transition: all 0.3s ease;
-        }
-        .logout-btn:hover {
-          background: rgba(231, 76, 60, 1);
-        }
+       
 
         /* ===== Announcements ===== */
         .urgent-banner {
@@ -3056,6 +3177,265 @@ export default function Dashboard() {
           margin: 6px 0 0;
           color: #5a6c7d;
         }
+          
+        /* Base */
+        .dashboard-container {
+          display: flex;
+          min-height: 100vh;
+          font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+          background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+          position: relative;
+        }
+        
+        .mobile-menu-btn {
+          display: none;
+          position: fixed;
+          top: 15px;
+          left: 15px;
+          z-index: 1000;
+          background: #2c3e50;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          padding: 8px;
+          cursor: pointer;
+        }
+        
+        .sidebar {
+          width: 280px;
+          background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
+          color: white;
+          display: flex;
+          flex-direction: column;
+          padding: 20px 0;
+          box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+          transition: transform 0.3s ease;
+          z-index: 1200;
+          position: relative;
+        }
+        
+        .sidebar-header {
+          padding: 0 20px 20px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 18px;
+          font-weight: 600;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          margin-bottom: 20px;
+        }
+        
+        .sidebar-close-btn {
+          display: none;
+          background: none;
+          border: none;
+          color: white;
+          margin-left: auto;
+          cursor: pointer;
+        }
+        
+        .sidebar-nav {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          padding: 0 10px;
+        }
+        
+        .nav-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 15px;
+          background: none;
+          border: none;
+          color: rgba(255, 255, 255, 0.7);
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          text-align: left;
+          width: 100%;
+        }
+        
+        .nav-item:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: white;
+        }
+        
+        .nav-item.active {
+          background: rgba(52, 152, 219, 0.2);
+          color: white;
+          border-left: 4px solid #3498db;
+        }
+
+        .logout-btn {
+          margin: 20px;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 10px;
+          padding: 12px;
+          background: rgba(231, 76, 60, 0.8);
+          border: none;
+          color: #fff;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 600;
+          transition: all 0.3s ease;
+        }
+        
+        .logout-btn:hover {
+          background: rgba(231, 76, 60, 1);
+        }
+
+        .main-content {
+          flex: 1;
+          padding: 30px;
+          overflow-y: auto;
+        }
+        
+        /* ... (all other styles remain mostly the same) ... */
+        
+        /* Responsive Design */
+        @media (max-width: 1024px) {
+          .sidebar {
+            width: 240px;
+          }
+          
+          .main-content {
+            padding: 20px;
+          }
+          
+          .stats-grid {
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          }
+          
+          .tasks-grid {
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          }
+        }
+        
+        @media (max-width: 768px) {
+          .mobile-menu-btn {
+            display: block;
+          }
+          
+          .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100%;
+            transform: translateX(-100%);
+          }
+          
+          .sidebar.mobile-open {
+            transform: translateX(0);
+          }
+          
+          .sidebar-close-btn {
+            display: block;
+          }
+          
+          .main-content {
+            width: 100%;
+            padding: 60px 15px 15px;
+          }
+          
+
+          .stats-grid {
+            grid-template-columns: 1fr;
+            gap: 15px;
+          }
+          
+          .tasks-grid {
+            grid-template-columns: 1fr;
+          }
+          
+          .card {
+            padding: 15px;
+          }
+          
+          .section-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+          }
+          
+          .table-wrap {
+            overflow-x: auto;
+          }
+          
+          .table {
+            min-width: 600px;
+          }
+          
+          .urgent-banner {
+            flex-direction: column;
+            gap: 10px;
+          }
+          
+          .urgent-actions {
+            display: flex;
+            gap: 10px;
+          }
+          
+          .form.grid,
+          .grid-2 {
+            grid-template-columns: 1fr;
+          }
+          
+          .modal {
+            width: 95%;
+            padding: 20px;
+          }
+          
+          .checkbox-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .main-content {
+            padding: 60px 10px 10px;
+          }
+          
+
+          
+          .card-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+          }
+          
+          .task-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+          }
+          
+          .task-actions {
+            align-self: flex-end;
+          }
+          
+          .modal-actions {
+            flex-direction: column;
+          }
+          
+          .modal-actions button {
+            width: 100%;
+          }
+          
+          .table-actions {
+            flex-direction: column;
+            gap: 5px;
+          }
+          
+          .btn.small {
+            padding: 6px 10px;
+            font-size: 12px;
+          }
+        }
+     
       `}</style>
     </div>
   );
