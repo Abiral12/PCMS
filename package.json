@@ -37,6 +37,7 @@
     "tailwind-variants": "^3.1.0",
     "tailwindcss-animate": "^1.0.7",
     "types": "^0.1.1",
+    "web-push": "^3.6.7",
     "zod": "^4.1.5"
   },
   "devDependencies": {

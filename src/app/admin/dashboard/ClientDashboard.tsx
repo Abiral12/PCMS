@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
 import './dashboard.css';
+import webpush from 'web-push';
 
 /* ===================== Auth headers helper ===================== */
 function buildAuthHeaders(): Record<string, string> {
@@ -809,6 +810,97 @@ const [newUsername, setNewUsername] = useState('');           // optional change
 const [currentPassword, setCurrentPassword] = useState('');   // required if changing password
 const [newPassword, setNewPassword] = useState('');           // optional change
 const [confirmPassword, setConfirmPassword] = useState('');   // confirm new password
+
+
+/* ===================== Notifications state ===================== */
+const [notifTitle, setNotifTitle] = useState('');
+const [notifBody, setNotifBody] = useState('');
+const [notifUrl, setNotifUrl] = useState(''); // optional deep-link
+const [notifSending, setNotifSending] = useState(false);
+const [notifError, setNotifError] = useState<string | null>(null);
+
+const [notifSelectedIds, setNotifSelectedIds] = useState<string[]>([]);
+const [notifSearch, setNotifSearch] = useState('');
+
+const filteredNotifEmployees = useMemo(() => {
+  const q = notifSearch.trim().toLowerCase();
+  if (!q) return employees;
+  return employees.filter(e =>
+    e.name.toLowerCase().includes(q) ||
+    e.email.toLowerCase().includes(q) ||
+    e.department.toLowerCase().includes(q) ||
+    e.position.toLowerCase().includes(q)
+  );
+}, [employees, notifSearch]);
+
+const allVisibleSelected = useMemo(() => {
+  if (!filteredNotifEmployees.length) return false;
+  return filteredNotifEmployees.every(e => notifSelectedIds.includes(e._id));
+}, [filteredNotifEmployees, notifSelectedIds]);
+
+function toggleSelectOne(id: string) {
+  setNotifSelectedIds(prev =>
+    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+  );
+}
+
+function toggleSelectAllVisible() {
+  if (allVisibleSelected) {
+    // unselect visible
+    setNotifSelectedIds(prev => prev.filter(id => !filteredNotifEmployees.some(e => e._id === id)));
+  } else {
+    // select visible (union)
+    setNotifSelectedIds(prev => {
+      const set = new Set(prev);
+      filteredNotifEmployees.forEach(e => set.add(e._id));
+      return Array.from(set);
+    });
+  }
+}
+
+async function sendPushToSelected(e: React.FormEvent) {
+  e.preventDefault();
+  setNotifError(null);
+
+  if (!notifTitle.trim() || !notifBody.trim()) {
+    show('Title and message are required', 'error');
+    return;
+  }
+  if (notifSelectedIds.length === 0) {
+    show('Select at least one employee', 'error');
+    return;
+  }
+
+  try {
+    setNotifSending(true);
+    const res = await fetch('/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      credentials: 'include',
+      body: JSON.stringify({
+        employeeIds: notifSelectedIds,
+        title: notifTitle.trim(),
+        body: notifBody.trim(),
+        url: notifUrl.trim() || undefined,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) throw new Error(data?.error || 'Failed to send notifications');
+
+    show(`Sent to ${data.sent ?? notifSelectedIds.length} device(s)`);
+    setNotifTitle('');
+    setNotifBody('');
+    setNotifUrl('');
+    setNotifSelectedIds([]);
+  } catch (err: any) {
+    const msg = err?.message || 'Failed to send';
+    setNotifError(msg);
+    show(msg, 'error');
+  } finally {
+    setNotifSending(false);
+  }
+}
+
 
 
 async function fetchAdminSettings() {
@@ -2038,13 +2130,14 @@ function splitISOToLocalDateTime(iso: string) {
       </header>
 
      <nav className="tabs">
-  {['attendance', 'employees', 'departments', 'roles', 'tasks', 'lunchTime', 'messages', 'settings'].map((tab) => (
+  {['attendance', 'employees', 'departments', 'roles', 'tasks', 'lunchTime', 'messages', 'notifications', 'settings'].map((tab) => (
     <button
       key={tab}
       onClick={() => {
         setActiveTab(tab);
         if (tab === 'messages') fetchMessages();
-        if (tab === 'settings') fetchAdminSettings(); // ← load settings when opened
+        if (tab === 'settings') fetchAdminSettings();
+        // notifications uses the employees list you already load via fetchData()
       }}
       className={`tab ${activeTab === tab ? 'active' : ''}`}
     >
@@ -2052,6 +2145,7 @@ function splitISOToLocalDateTime(iso: string) {
     </button>
   ))}
 </nav>
+
 
 
       <main className="content">
@@ -3173,6 +3267,164 @@ function splitISOToLocalDateTime(iso: string) {
     )}
   </section>
 )}
+
+{activeTab === 'notifications' && (
+  <section className="card">
+    <div className="card-header">
+      <h2>Notifications</h2>
+    </div>
+
+    {notifError && (
+      <div className="error-box">
+        <span>{notifError}</span>
+        <button className="btn danger small" onClick={() => setNotifError(null)}>Dismiss</button>
+      </div>
+    )}
+
+    {/* Composer */}
+    <div className="subcard">
+      <h3>Compose Notification</h3>
+      <form className="form grid" onSubmit={sendPushToSelected}>
+        <div className="field">
+          <label>Title</label>
+          <input
+            className="input"
+            type="text"
+            maxLength={80}
+            placeholder="e.g., Urgent: Meeting at 4 PM"
+            value={notifTitle}
+            onChange={(e) => setNotifTitle(e.target.value)}
+            required
+            disabled={notifSending}
+          />
+        </div>
+
+        <div className="field">
+          <label>Message</label>
+          <textarea
+            className="input textarea"
+            rows={4}
+            placeholder="Keep it short and actionable…"
+            value={notifBody}
+            onChange={(e) => setNotifBody(e.target.value)}
+            required
+            disabled={notifSending}
+          />
+          <small className="muted">Tip: Most systems truncate long bodies—aim for 120–180 characters.</small>
+        </div>
+
+        <div className="field">
+          <label>Deep-link URL (optional)</label>
+          <input
+            className="input"
+            type="url"
+            placeholder="https://pcoms.vercel.app/employee/tasks/123"
+            value={notifUrl}
+            onChange={(e) => setNotifUrl(e.target.value)}
+            disabled={notifSending}
+          />
+          <small className="muted">When the user clicks the notification, this URL will open or focus.</small>
+        </div>
+
+        <div className="actions">
+          <button
+            type="submit"
+            className={`btn ${notifSending ? 'secondary' : 'primary'}`}
+            disabled={notifSending}
+          >
+            {notifSending ? 'Sending…' : `Send to Selected (${notifSelectedIds.length})`}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    {/* Recipient picker */}
+    <div className="subcard">
+      <div className="card-header" style={{ gap: 8 }}>
+        <h3 style={{ margin: 0 }}>Select Recipients</h3>
+        <div className="actions" style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <input
+            className="input"
+            type="text"
+            placeholder="Search name, email, department, position…"
+            value={notifSearch}
+            onChange={(e) => setNotifSearch(e.target.value)}
+            aria-label="Search employees"
+          />
+          <button className="btn secondary" onClick={toggleSelectAllVisible}>
+            {allVisibleSelected ? 'Unselect Visible' : 'Select Visible'}
+          </button>
+          <span className="hm-pill hm-blue">{notifSelectedIds.length} selected</span>
+        </div>
+      </div>
+
+      {filteredNotifEmployees.length === 0 ? (
+        <p className="empty">No employees match your search.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th style={{ width: 32 }}>
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                  />
+                </th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Department</th>
+                <th>Role</th>
+                <th>Position</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredNotifEmployees.map((e) => {
+                const checked = notifSelectedIds.includes(e._id);
+                return (
+                  <tr key={e._id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSelectOne(e._id)}
+                        aria-label={`Select ${e.name}`}
+                      />
+                    </td>
+                    <td>{e.name}</td>
+                    <td>{e.email}</td>
+                    <td>{e.department}</td>
+                    <td>{e.role}</td>
+                    <td>{e.position}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+
+    {/* Live preview */}
+    <div className="subcard">
+      <h3>Preview</h3>
+      <div className="hm-feed">
+        <div className="hm-feed-item">
+          <div className="hm-feed-line">
+            <strong>PCOMS</strong>
+            <span className="hm-feed-dot">•</span>
+            <em>{notifTitle || 'Notification title…'}</em>
+          </div>
+          <div className="hm-feed-msg">{notifBody || 'Notification message preview…'}</div>
+          {notifUrl ? <small className="hm-feed-time">{notifUrl}</small> : null}
+        </div>
+      </div>
+    </div>
+  </section>
+)}
+
 
       </main>
 {inspectEmployee && (
