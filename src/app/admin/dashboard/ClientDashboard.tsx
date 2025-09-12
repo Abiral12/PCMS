@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
 import './dashboard.css';
-import webpush from 'web-push';
 
 /* ===================== Auth headers helper ===================== */
 function buildAuthHeaders(): Record<string, string> {
