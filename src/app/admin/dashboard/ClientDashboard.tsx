@@ -9,15 +9,8 @@ import './dashboard.css';
 
 /* ===================== Auth headers helper ===================== */
 function buildAuthHeaders(): Record<string, string> {
-  try {
-    if (typeof window === 'undefined') return {};
-    const raw = localStorage.getItem('employee');
-    if (!raw) return {};
-    const id = JSON.parse(raw)?.id;
-    return id ? { 'x-user-id': String(id) } : {};
-  } catch {
-    return {};
-  }
+  // Admin routes use admin_token cookie, no need for x-user-id
+  return {};
 }
 
 /* ===================== Types ===================== */
@@ -354,7 +347,7 @@ function HolidaysModal({
     try {
       setProgLoading(true);
       setProgError(null);
-      const res = await fetch('/api/tasks/progress?limit=50', { headers: { ...buildAuthHeaders() } });
+      const res = await fetch('/api/admin/tasks/progress?limit=50', { headers: { ...buildAuthHeaders() } });
       if (!res.ok) throw new Error('Failed to load progress updates');
       const data = await res.json();
       setProgressList(Array.isArray(data.updates) ? data.updates : []);
@@ -1097,7 +1090,7 @@ async function fetchProgressUpdates(date?: string) {
 
     const qs = new URLSearchParams({ limit: '100' });
     if (date) qs.set('date', date);           // backend supports ?date=YYYY-MM-DD
-    const res = await fetch(`/api/tasks/progress?${qs}`, { headers: { ...authHeaders() } });
+    const res = await fetch(`/api/admin/tasks/progress?${qs}`, { headers: { ...authHeaders() } });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to load progress updates');
 
@@ -1598,7 +1591,7 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
     while (cursor.getTime() <= end.getTime()) {
       const d = isoDate(cursor);
       try {
-        const res = await fetch(`/api/tasks/progress?date=${d}&limit=500`, { headers: { ...buildAuthHeaders() } });
+        const res = await fetch(`/api/admin/tasks/progress?date=${d}&limit=500`, { headers: { ...buildAuthHeaders() } });
         if (res.ok) {
           const j = await res.json();
           if (Array.isArray(j.updates)) {
@@ -1986,7 +1979,7 @@ const startEditingTask = (t: Task) => {
       ...newTask,
       dueDate: dueISO,     // <— combined value
     };
-      const res = await fetch('/api/tasks', {
+      const res = await fetch('/api/admin/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
       body: JSON.stringify(payload),
@@ -2019,7 +2012,7 @@ const startEditingTask = (t: Task) => {
     };
     if (newTask.status) payload.status = newTask.status; // keep status as-is
 
-    const res = await fetch('/api/tasks', {
+    const res = await fetch('/api/admin/tasks', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
       body: JSON.stringify(payload),
@@ -2063,7 +2056,7 @@ const handleDeleteBroadcast = async (id: string) => {
 const handleDeleteTask = async (taskId: string) => {
   if (!confirm('Delete this task?')) return;
   try {
-    const res = await fetch(`/api/tasks?id=${taskId}`, {   // ← use ?id=
+    const res = await fetch(`/api/admin/tasks?id=${taskId}`, {   // ← use ?id=
       method: 'DELETE',
       headers: { ...buildAuthHeaders() },
     });
