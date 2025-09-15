@@ -1379,8 +1379,16 @@ useEffect(() => {
     return rows;
   }, [filteredAttendance]);
 
-  const adminFetch = (url: string, init: RequestInit = {}) =>
-  fetch(url, { credentials: 'include', ...init });
+const adminFetch = (url: string, init: RequestInit = {}) => {
+  const auth = { ...buildAuthHeaders() };           // x-user-id from localStorage
+  const mergedHeaders = { ...(init.headers || {}), ...auth };
+
+  return fetch(url, {
+    credentials: 'include',                          // keep cookies if available
+    ...init,
+    headers: mergedHeaders,
+  });
+};
 
   const fetchData = async () => {
     setError(null);
