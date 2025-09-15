@@ -906,9 +906,10 @@ async function fetchAdminSettings() {
   try {
     setSettingsLoading(true);
     setSettingsError(null);
-    const res = await fetch('/api/admin/settings', {
+   const res = await fetch('/api/admin/settings', {
       method: 'GET',
       credentials: 'include',
+      headers: { ...buildAuthHeaders() },   
     });
     const data = await res.json();
     if (!res.ok || !data?.success) throw new Error(data?.error || `Failed to load settings (${res.status})`);
@@ -957,12 +958,12 @@ async function saveAdminSettings(e: React.FormEvent) {
       return;
     }
 
-    const res = await fetch('/api/admin/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload),
-    });
+const res = await fetch('/api/admin/settings', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() }, // 👈 add buildAuthHeaders
+  credentials: 'include',
+  body: JSON.stringify(payload),
+});
     const data = await res.json();
     if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to update settings');
 
@@ -1453,10 +1454,11 @@ const results = await Promise.allSettled([
       setSendingMsg(true);
       const res = await fetch('/api/messages/broadcast', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() }, // 👈 add buildAuthHeaders
   body: JSON.stringify(newMsg),
   credentials: 'include',
 });
+
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send');
 
