@@ -39,7 +39,7 @@ export default function CheckInOut({ employeeId, employeeName, onCheckInOut }: C
           v.pause();
         } catch {}
         try {
-          // @ts-expect-error runtime property
+         
           v.srcObject = null;
         } catch {}
         try { v.removeAttribute('src'); } catch {}
@@ -79,7 +79,7 @@ export default function CheckInOut({ employeeId, employeeName, onCheckInOut }: C
     const v = videoRef.current;
     if (v) {
       try {
-        // @ts-expect-error runtime property
+        
         v.srcObject = stream;
         await v.play().catch(() => {});
       } catch {}
