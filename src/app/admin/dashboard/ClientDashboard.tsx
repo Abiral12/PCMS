@@ -903,7 +903,11 @@ async function sendPushToSelected(e: React.FormEvent) {
         }),
       });
       // ignore non-200 here; DB already saved
-      await res.clone().catch(() => null);
+      try {
+        await res.clone().text(); // Just consume the response
+      } catch {
+        // Ignore any errors from reading the response
+      }
     } catch { /* ignore push errors */ }
 
     show(`Sent to ${notifSelectedIds.length} recipient(s)`);
