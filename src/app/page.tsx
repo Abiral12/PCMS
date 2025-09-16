@@ -32,6 +32,17 @@ export default function Login() {
       localStorage.setItem('employee', JSON.stringify(data.employee));
       localStorage.setItem('permissions', JSON.stringify(data.employee.permissions));
 
+      // Also set a cookie so APIs can authenticate even if localStorage isn't available
+      try {
+        const employeeId = data?.employee?.id || data?.employee?._id;
+        if (employeeId && typeof document !== 'undefined') {
+          const maxAge = 60 * 60 * 24 * 30; // 30 days
+          document.cookie = `employeeId=${employeeId}; Path=/; SameSite=Lax; Max-Age=${maxAge}`;
+        }
+      } catch {
+        // ignore cookie errors
+      }
+
       router.push('/dashboard');
     } catch (err: any) {
       setError('Something went wrong');

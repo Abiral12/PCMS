@@ -9,15 +9,8 @@ import './dashboard.css';
 
 /* ===================== Auth headers helper ===================== */
 function buildAuthHeaders(): Record<string, string> {
-  try {
-    if (typeof window === 'undefined') return {};
-    const raw = localStorage.getItem('employee');
-    if (!raw) return {};
-    const id = JSON.parse(raw)?.id;
-    return id ? { 'x-user-id': String(id) } : {};
-  } catch {
-    return {};
-  }
+  // Admin routes use admin_token cookie, no need for x-user-id
+  return {};
 }
 
 /* ===================== Types ===================== */
@@ -354,7 +347,7 @@ function HolidaysModal({
     try {
       setProgLoading(true);
       setProgError(null);
-      const res = await fetch('/api/tasks/progress?limit=50', { headers: { ...buildAuthHeaders() } });
+      const res = await fetch('/api/admin/tasks/progress?limit=50', { headers: { ...buildAuthHeaders() } });
       if (!res.ok) throw new Error('Failed to load progress updates');
       const data = await res.json();
       setProgressList(Array.isArray(data.updates) ? data.updates : []);
@@ -821,6 +814,10 @@ const [notifError, setNotifError] = useState<string | null>(null);
 const [notifSelectedIds, setNotifSelectedIds] = useState<string[]>([]);
 const [notifSearch, setNotifSearch] = useState('');
 
+// Notifications state
+const [notifications, setNotifications] = useState<any[]>([]);
+const [loadingNotifications, setLoadingNotifications] = useState(false);
+
 const filteredNotifEmployees = useMemo(() => {
   const q = notifSearch.trim().toLowerCase();
   if (!q) return employees;
@@ -872,25 +869,51 @@ async function sendPushToSelected(e: React.FormEvent) {
 
   try {
     setNotifSending(true);
-    const res = await fetch('/api/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
-      credentials: 'include',
-      body: JSON.stringify({
-        employeeIds: notifSelectedIds,
-        title: notifTitle.trim(),
-        body: notifBody.trim(),
-        url: notifUrl.trim() || undefined,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data?.ok) throw new Error(data?.error || 'Failed to send notifications');
 
-    show(`Sent to ${data.sent ?? notifSelectedIds.length} device(s)`);
+    // 1) Persist notifications per recipient (guarantee DB save)
+    // These notifications will be used by the push/send endpoint
+    const notificationResults = await Promise.all(
+      notifSelectedIds.map(async (eid) => {
+        const response = await fetch('/api/admin/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+          credentials: 'include',
+          body: JSON.stringify({ toEmployeeId: eid, title: notifTitle.trim(), body: notifBody.trim() }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          console.error('Failed to save notification:', data.error, data.details);
+          throw new Error(data.error || 'Failed to save notification');
+        }
+        return data;
+      })
+    );
+
+    // 2) Fire-and-forget push delivery (optional)
+    try {
+      const res = await fetch('/api/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+        credentials: 'include',
+        body: JSON.stringify({
+          employeeIds: notifSelectedIds,
+          title: notifTitle.trim(),
+          body: notifBody.trim(),
+          url: notifUrl.trim() || undefined,
+        }),
+      });
+      // ignore non-200 here; DB already saved
+      await res.clone().catch(() => null);
+    } catch { /* ignore push errors */ }
+
+    show(`Sent to ${notifSelectedIds.length} recipient(s)`);
     setNotifTitle('');
     setNotifBody('');
     setNotifUrl('');
     setNotifSelectedIds([]);
+    
+    // Refresh notifications list
+    await fetchNotifications();
   } catch (err: any) {
     const msg = err?.message || 'Failed to send';
     setNotifError(msg);
@@ -900,15 +923,53 @@ async function sendPushToSelected(e: React.FormEvent) {
   }
 }
 
+async function fetchNotifications() {
+  try {
+    setLoadingNotifications(true);
+    setNotifError(null);
+    const res = await fetch('/api/admin/notifications', {
+      headers: { ...buildAuthHeaders() },
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Failed to load notifications');
+    setNotifications(data.notifications || []);
+  } catch (err: any) {
+    setNotifError(err.message || 'Failed to load notifications');
+  } finally {
+    setLoadingNotifications(false);
+  }
+}
+
+async function deleteNotification(id: string) {
+  if (!confirm('Delete this notification?')) return;
+  try {
+    const res = await fetch('/api/admin/notifications', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      credentials: 'include',
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Failed to delete notification');
+    
+    setNotifications(prev => prev.filter(n => n._id !== id));
+    show('Notification deleted');
+  } catch (err: any) {
+    show(err.message || 'Failed to delete notification', 'error');
+  }
+}
+
 
 
 async function fetchAdminSettings() {
   try {
     setSettingsLoading(true);
     setSettingsError(null);
-    const res = await fetch('/api/admin/settings', {
+   const res = await fetch('/api/admin/settings', {
       method: 'GET',
       credentials: 'include',
+      headers: { ...buildAuthHeaders() },   
     });
     const data = await res.json();
     if (!res.ok || !data?.success) throw new Error(data?.error || `Failed to load settings (${res.status})`);
@@ -957,12 +1018,12 @@ async function saveAdminSettings(e: React.FormEvent) {
       return;
     }
 
-    const res = await fetch('/api/admin/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload),
-    });
+const res = await fetch('/api/admin/settings', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() }, // 👈 add buildAuthHeaders
+  credentials: 'include',
+  body: JSON.stringify(payload),
+});
     const data = await res.json();
     if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to update settings');
 
@@ -1096,7 +1157,7 @@ async function fetchProgressUpdates(date?: string) {
 
     const qs = new URLSearchParams({ limit: '100' });
     if (date) qs.set('date', date);           // backend supports ?date=YYYY-MM-DD
-    const res = await fetch(`/api/tasks/progress?${qs}`, { headers: { ...authHeaders() } });
+    const res = await fetch(`/api/admin/tasks/progress?${qs}`, { headers: { ...authHeaders() } });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to load progress updates');
 
@@ -1379,8 +1440,16 @@ useEffect(() => {
     return rows;
   }, [filteredAttendance]);
 
-  const adminFetch = (url: string, init: RequestInit = {}) =>
-  fetch(url, { credentials: 'include', ...init });
+const adminFetch = (url: string, init: RequestInit = {}) => {
+  const auth = { ...buildAuthHeaders() };           // x-user-id from localStorage
+  const mergedHeaders = { ...(init.headers || {}), ...auth };
+
+  return fetch(url, {
+    credentials: 'include',                          // keep cookies if available
+    ...init,
+    headers: mergedHeaders,
+  });
+};
 
   const fetchData = async () => {
     setError(null);
@@ -1445,10 +1514,11 @@ const results = await Promise.allSettled([
       setSendingMsg(true);
       const res = await fetch('/api/messages/broadcast', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() }, // 👈 add buildAuthHeaders
   body: JSON.stringify(newMsg),
   credentials: 'include',
 });
+
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send');
 
@@ -1588,7 +1658,7 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
     while (cursor.getTime() <= end.getTime()) {
       const d = isoDate(cursor);
       try {
-        const res = await fetch(`/api/tasks/progress?date=${d}&limit=500`, { headers: { ...buildAuthHeaders() } });
+        const res = await fetch(`/api/admin/tasks/progress?date=${d}&limit=500`, { headers: { ...buildAuthHeaders() } });
         if (res.ok) {
           const j = await res.json();
           if (Array.isArray(j.updates)) {
@@ -1976,7 +2046,7 @@ const startEditingTask = (t: Task) => {
       ...newTask,
       dueDate: dueISO,     // <— combined value
     };
-      const res = await fetch('/api/tasks', {
+      const res = await fetch('/api/admin/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
       body: JSON.stringify(payload),
@@ -2009,7 +2079,7 @@ const startEditingTask = (t: Task) => {
     };
     if (newTask.status) payload.status = newTask.status; // keep status as-is
 
-    const res = await fetch('/api/tasks', {
+    const res = await fetch('/api/admin/tasks', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
       body: JSON.stringify(payload),
@@ -2053,7 +2123,7 @@ const handleDeleteBroadcast = async (id: string) => {
 const handleDeleteTask = async (taskId: string) => {
   if (!confirm('Delete this task?')) return;
   try {
-    const res = await fetch(`/api/tasks?id=${taskId}`, {   // ← use ?id=
+    const res = await fetch(`/api/admin/tasks?id=${taskId}`, {   // ← use ?id=
       method: 'DELETE',
       headers: { ...buildAuthHeaders() },
     });
@@ -2136,7 +2206,7 @@ function splitISOToLocalDateTime(iso: string) {
         setActiveTab(tab);
         if (tab === 'messages') fetchMessages();
         if (tab === 'settings') fetchAdminSettings();
-        // notifications uses the employees list you already load via fetchData()
+        if (tab === 'notifications') fetchNotifications();
       }}
       className={`tab ${activeTab === tab ? 'active' : ''}`}
     >
@@ -3271,6 +3341,9 @@ function splitISOToLocalDateTime(iso: string) {
   <section className="card">
     <div className="card-header">
       <h2>Notifications</h2>
+      <button onClick={fetchNotifications} className="btn info" disabled={loadingNotifications}>
+        {loadingNotifications ? 'Loading…' : 'Refresh'}
+      </button>
     </div>
 
     {notifError && (
@@ -3400,6 +3473,73 @@ function splitISOToLocalDateTime(iso: string) {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+
+    {/* Sent Notifications History */}
+    <div className="subcard">
+      <div className="card-header" style={{ gap: 8 }}>
+        <h3 style={{ margin: 0 }}>Sent Notifications ({notifications.length})</h3>
+        <div className="actions" style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button className="btn secondary" onClick={fetchNotifications} disabled={loadingNotifications}>
+            {loadingNotifications ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      {loadingNotifications ? (
+        <p className="muted">Loading notifications…</p>
+      ) : notifications.length === 0 ? (
+        <p className="empty">No notifications sent yet.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Sent</th>
+                <th>Title</th>
+                <th>Message</th>
+                <th>Recipient</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {notifications.map((notif) => (
+                <tr key={notif._id}>
+                  <td>{new Date(notif.createdAt).toLocaleString()}</td>
+                  <td>
+                    <strong>{notif.title || 'No title'}</strong>
+                  </td>
+                  <td>
+                    <div style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {notif.body || notif.message || 'No message'}
+                    </div>
+                  </td>
+                  <td>
+                    <div>
+                      <div>{notif.employeeName || 'Unknown'}</div>
+                      <small className="muted">{notif.employeeEmail}</small>
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`badge ${notif.read ? 'badge-green' : 'badge-amber'}`}>
+                      {notif.read ? 'Read' : 'Unread'}
+                    </span>
+                  </td>
+                  <td className="table-actions">
+                    <button
+                      onClick={() => deleteNotification(notif._id)}
+                      className="btn danger small"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

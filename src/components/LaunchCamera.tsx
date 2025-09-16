@@ -12,8 +12,13 @@ function buildAuthHeaders(): Record<string, string> {
   try {
     if (typeof window === 'undefined') return {};
     const raw = localStorage.getItem('employee');
-    if (!raw) return {};
-    const id = JSON.parse(raw)?.id;
+    const idFromEmployee = raw ? JSON.parse(raw)?.id : undefined;
+    const idFromUserId = localStorage.getItem('userId') || undefined;
+    let id = idFromEmployee || idFromUserId;
+    if (!id && typeof document !== 'undefined') {
+      const m = document.cookie.match(/(?:^|; )employeeId=([^;]+)/);
+      if (m) id = decodeURIComponent(m[1]);
+    }
     return id ? { 'x-user-id': String(id) } : {};
   } catch {
     return {};

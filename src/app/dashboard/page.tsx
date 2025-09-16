@@ -52,6 +52,17 @@ type LunchLog = {
   timestamp: string;
 };
 
+type Notification = {
+  _id: string;
+  title: string;
+  body: string;
+  message?: string;
+  type: 'admin_message' | 'work_check';
+  read: boolean;
+  createdAt: string;
+  fromAdminId: string;
+};
+
 type LunchTime = {
   _id: string;
   employeeId: string;
@@ -141,6 +152,12 @@ export default function Dashboard() {
   const [showHolidayRequestForm, setShowHolidayRequestForm] = useState(false);
   const [holidayDate, setHolidayDate] = useState("");
   const [holidayMessage, setHolidayMessage] = useState("");
+  
+  // Notifications
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   /* --------- Admin datasets & forms --------- */
   const [employees, setEmployees] = useState<
@@ -286,11 +303,7 @@ export default function Dashboard() {
     }
   }, [employeeId]);
 
-  useEffect(() => {
-    if (employeeId) {
-      registerForPush();
-    }
-  }, [employeeId, registerForPush]);
+  // These useEffect hooks will be moved after fetchNotifications is defined
 
   /* ================== Identity bootstrap ================== */
   useEffect(() => {
@@ -350,8 +363,13 @@ export default function Dashboard() {
     try {
       if (typeof window === "undefined") return {};
       const raw = localStorage.getItem("employee");
-      if (!raw) return {};
-      const id = JSON.parse(raw)?.id;
+      const idFromEmployee = raw ? JSON.parse(raw)?.id : undefined;
+      const idFromUserId = localStorage.getItem("userId") || undefined;
+      let id = idFromEmployee || idFromUserId;
+      if (!id && typeof document !== 'undefined') {
+        const m = document.cookie.match(/(?:^|; )employeeId=([^;]+)/);
+        if (m) id = decodeURIComponent(m[1]);
+      }
       return id ? { "x-user-id": String(id) } : {};
     } catch {
       return {};
@@ -484,6 +502,67 @@ export default function Dashboard() {
       console.error("Failed to load holidays", e);
     }
   }, []);
+  
+  // Load notifications for the employee
+  const fetchNotifications = useCallback(async () => {
+    if (!employeeId) return;
+    try {
+      setLoadingNotifications(true);
+      const res = await fetch(`/api/push/recent?employeeId=${employeeId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error('Failed to load notifications');
+      
+      setNotifications(data.notifications || []);
+      // Count unread notifications
+      const unread = data.notifications.filter((n: Notification) => !n.read).length;
+      setUnreadCount(unread);
+    } catch (e) {
+      console.error("Failed to load notifications", e);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  }, [employeeId]);
+  
+  // Register for push and fetch notifications
+  useEffect(() => {
+    if (employeeId) {
+      registerForPush();
+      fetchNotifications();
+    }
+  }, [employeeId, registerForPush, fetchNotifications]);
+  
+  // Refresh notifications periodically
+  useEffect(() => {
+    if (!employeeId) return;
+    
+    const interval = setInterval(() => {
+      fetchNotifications();
+    }, 60000); // Refresh every minute
+    
+    return () => clearInterval(interval);
+  }, [employeeId, fetchNotifications]);
+  
+  // Mark a notification as read
+  const markAsRead = async (notificationId: string) => {
+    try {
+      const res = await fetch(`/api/notifications/${notificationId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (!res.ok) throw new Error('Failed to mark notification as read');
+      
+      // Update local state
+      setNotifications(prev => 
+        prev.map(n => n._id === notificationId ? { ...n, read: true } : n)
+      );
+      
+      // Update unread count
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (e) {
+      console.error("Failed to mark notification as read", e);
+    }
+  };
 
   // Admin loads
   const loadAdminSets = useCallback(
@@ -534,6 +613,7 @@ export default function Dashboard() {
       loadHolidays();
       loadAdminSets(employeeId);
       loadAnnouncements(employeeId); // ✅ add this
+      fetchNotifications();
     }
   }, [
     employeeId,
@@ -544,6 +624,7 @@ export default function Dashboard() {
     loadHolidays,
     loadAdminSets,
     loadAnnouncements,
+    fetchNotifications,
   ]);
 
   /* ================== Self task actions ================== */
@@ -950,8 +1031,146 @@ export default function Dashboard() {
 };
 
   /* ================== Render ================== */
+  // CSS styles for notifications
+  const notificationStyles = `
+    .header-left, .header-right {
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .header-right {
+      align-items: flex-end;
+    }
+    
+    .content-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    
+    .notification-bell {
+      position: relative;
+    }
+    
+    .notification-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      position: relative;
+      padding: 5px;
+    }
+    
+    .bell-icon {
+      position: relative;
+    }
+    
+    .notification-badge {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      background-color: #f44336;
+      color: white;
+      border-radius: 50%;
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    
+    .notification-dropdown {
+      position: absolute;
+      top: 40px;
+      right: 0;
+      width: 320px;
+      max-height: 400px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 1000;
+      overflow: hidden;
+    }
+    
+    .notification-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .notification-header h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+    
+    .close-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+    }
+    
+    .notification-list {
+      max-height: 350px;
+      overflow-y: auto;
+    }
+    
+    .notification-item {
+      padding: 12px 16px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      position: relative;
+      transition: background-color 0.2s;
+    }
+    
+    .notification-item:hover {
+      background-color: #f9f9f9;
+    }
+    
+    .notification-item.unread {
+      background-color: #f0f7ff;
+    }
+    
+    .notification-title {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    
+    .notification-body {
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 8px;
+    }
+    
+    .notification-time {
+      font-size: 12px;
+      color: #888;
+    }
+    
+    .unread-indicator {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #1e88e5;
+    }
+    
+    .notification-loading,
+    .notification-empty {
+      padding: 16px;
+      text-align: center;
+      color: #888;
+    }
+  `;
+  
   return (
     <div className="dashboard-container">
+      <style jsx>{notificationStyles}</style>
 
       {/* Mobile Menu Button */}
       <button 
@@ -1016,16 +1235,78 @@ export default function Dashboard() {
       {/* Main content */}
       <main className="main-content">
         <header className="content-header">
-          <h1>Welcome back, {employeeName}</h1>
-          <p>Here`s your daily overview</p>
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-              marginTop: 6,
-            }}
-          >
+          <div className="header-left">
+            <h1>Welcome back, {employeeName}</h1>
+            <p>Here`s your daily overview</p>
+          </div>
+          
+          <div className="header-right">
+            <div className="notification-bell">
+              <button 
+                className="btn-icon notification-button" 
+                onClick={() => setShowNotifications(!showNotifications)}
+                aria-label="Notifications"
+              >
+                <div className="bell-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                  </svg>
+                  {unreadCount > 0 && (
+                    <span className="notification-badge">{unreadCount}</span>
+                  )}
+                </div>
+              </button>
+              
+              {showNotifications && (
+                <div className="notification-dropdown">
+                  <div className="notification-header">
+                    <h3>Notifications</h3>
+                    <button 
+                      className="close-button" 
+                      onClick={() => setShowNotifications(false)}
+                      aria-label="Close notifications"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  
+                  <div className="notification-list">
+                    {loadingNotifications ? (
+                      <div className="notification-loading">Loading...</div>
+                    ) : notifications.length === 0 ? (
+                      <div className="notification-empty">No notifications</div>
+                    ) : (
+                      notifications.map((notification) => (
+                        <div 
+                          key={notification._id} 
+                          className={`notification-item ${!notification.read ? 'unread' : ''}`}
+                          onClick={() => markAsRead(notification._id)}
+                        >
+                          <div className="notification-title">{notification.title}</div>
+                          <div className="notification-body">{notification.body}</div>
+                          <div className="notification-time">
+                            {new Date(notification.createdAt).toLocaleString()}
+                          </div>
+                          {!notification.read && (
+                            <div className="unread-indicator"></div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                marginTop: 6,
+              }}
+            >
             {pushReady ? (
               <span className="badge badge-green">Notifications On</span>
             ) : (
@@ -1042,6 +1323,7 @@ export default function Dashboard() {
               </span>
             )}
           </div>
+        </div>
         </header>
 
         {/* Urgent company announcement banner */}

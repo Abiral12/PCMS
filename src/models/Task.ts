@@ -49,15 +49,15 @@ TaskSchema.index({ dueDate: 1 });
 
 export default mongoose.models.Task || mongoose.model<ITask>('Task', TaskSchema);
 
-// 🔔 Notifications Schema
-export interface INotification extends Document {
+// 🔔 Task Notifications Schema
+export interface ITaskNotification extends Document {
   employeeId: string;
   message: string;
   createdAt: Date;
   read: boolean;
 }
 
-const NotificationSchema: Schema = new Schema(
+const TaskNotificationSchema: Schema = new Schema(
   {
     employeeId: { type: String, required: true },
     message: { type: String, required: true },
@@ -66,6 +66,6 @@ const NotificationSchema: Schema = new Schema(
   { timestamps: true }
 );
 
-export const Notification =
-  mongoose.models.Notification ||
-  mongoose.model<INotification>('Notification', NotificationSchema);
+export const TaskNotification =
+  mongoose.models.TaskNotification ||
+  mongoose.model<ITaskNotification>('TaskNotification', TaskNotificationSchema);
