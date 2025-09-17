@@ -1,19 +1,15 @@
 /* global self, registration */
-
-// --- lifecycle: ensure the latest SW is active immediately
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
-const SW_VERSION = 'v10';
+const SW_VERSION = 'v10';  // ⬅ bump so browser reloads the SW
 console.log('SW', SW_VERSION, 'loaded');
 
-// helper: broadcast debug/status to all open pages
 async function tellPages(type, payload) {
   const pages = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   pages.forEach(c => c.postMessage({ type, ...payload, _sw: SW_VERSION }));
 }
 
-// ---- PUSH
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch {}
@@ -23,15 +19,14 @@ self.addEventListener('push', (event) => {
   const id    = data && data.id ? String(data.id) : undefined;
   const deliveryId = data && data.deliveryId ? String(data.deliveryId) : undefined;
 
-  // DEBUG: show exactly what id we received
-  event.waitUntil(tellPages('PUSH_DEBUG', { id, raw: data }));
+  event.waitUntil(tellPages('PUSH_DEBUG', { id, deliveryId, raw: data }));
 
   event.waitUntil(
     registration.showNotification(title, {
       body,
       icon: '/icon-192.png',
       badge: '/badge.png',
-       data: { url, id, deliveryId }, 
+      data: { url, id, deliveryId },
       requireInteraction: false,
       actions: [
         { action: 'ack',  title: 'Acknowledge' },
@@ -41,54 +36,61 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// ---- CLICK
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const { url, id, deliveryId } = event.notification.data || {};
-  const ackOrigin = (() => {
-   try { return new URL(url).origin; } catch { return self.location.origin; }
- })();
- const ACK = `${ackOrigin}/api/push/ack`;
 
-   async function tryAck({ deliveryId, notifId }) {
-   if (!deliveryId && !notifId) {
-      await tellPages('ACK_NO_ID', {});
-      return { ok: false, status: 0, error: 'no-id' };
-    }
-    try {
-      const res = await fetch(ACK, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(deliveryId ? { deliveryId } : { id: notifId }),
-        cache: 'no-store',
-        keepalive: true,
-        redirect: 'follow',
-      });
-      const ok = res.ok;
-      let body;
-      try { body = await res.clone().json(); } catch { body = null; }
-      await tellPages('ACK_RESULT', { ok, status: res.status, body, id: notifId, deliveryId });
-      return { ok, status: res.status };
-    } catch (err) {
-      await tellPages('ACK_RESULT', { ok: false, status: -1, error: String(err), id: notifId, deliveryId });
-      return { ok: false, status: -1 };
-    }
+  // Pick the same origin as the notification URL; fallback to SW origin;
+  // and finally try the other one too (helps when you test between localhost and live).
+  const urlOrigin  = (() => { try { return new URL(url).origin; } catch { return ''; } })();
+  const swOrigin   = self.location.origin;
+  const candidates = Array.from(new Set([urlOrigin || swOrigin, swOrigin, urlOrigin].filter(Boolean)));
+
+  async function postAck(origin) {
+    const body = JSON.stringify(deliveryId ? { deliveryId } : { id });
+    const res  = await fetch(`${origin}/api/push/ack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // CORS-safe for cross-origin case
+      mode: origin === swOrigin ? 'same-origin' : 'cors',
+      cache: 'no-store',
+      keepalive: true,
+      redirect: 'follow',
+      body,
+    });
+    let json = null;
+    try { json = await res.clone().json(); } catch {}
+    await tellPages('ACK_RESULT', { origin, ok: res.ok, status: res.status, body: json, id, deliveryId });
+    return res.ok;
   }
 
-  // Android action button
+  async function tryAck() {
+    if (!deliveryId && !id) {
+      await tellPages('ACK_NO_ID', {});
+      return false;
+    }
+    for (const origin of candidates) {
+      try {
+        const ok = await postAck(origin);
+        if (ok) return true;
+      } catch (e) {
+        await tellPages('ACK_RESULT', { origin, ok: false, error: String(e), id, deliveryId });
+      }
+    }
+    return false;
+  }
+
   if (event.action === 'ack') {
     event.waitUntil((async () => {
-      await tryAck({ deliveryId, notifId: id });
-      // always tell UI to flip optimistically; polling will reconcile
-      await tellPages('PUSH_ACKED', { id });
+      await tryAck();
+      await tellPages('PUSH_ACKED', { id, deliveryId });
     })());
     return;
   }
 
-  // Desktop fallback: any click → ack + open/focus
   event.waitUntil((async () => {
-    await tryAck({ deliveryId, notifId: id });
-    await tellPages('PUSH_ACKED', { id,deliveryId });
+    await tryAck();
+    await tellPages('PUSH_ACKED', { id, deliveryId });
 
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const found = clients.find(c => url && c.url.startsWith(url));
