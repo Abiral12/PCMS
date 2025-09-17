@@ -115,3 +115,17 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+
+export async function GET(_req: NextRequest) {
+  await dbConnect();
+  const schedules = await NotificationSchedule
+    .find({})
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .lean();
+
+  // normalize ids to strings for the client
+  const list = schedules.map(s => ({ ...s, _id: String(s._id), employeeId: String(s.employeeId) }));
+  return NextResponse.json({ ok: true, schedules: list });
+}

@@ -47,6 +47,19 @@ type HolidayRequest = {
   message: string;
 };
 
+type ScheduleRow = {
+  _id: string;
+  employeeId: string;
+  title: string;
+  everyMinutes: number;
+  startAt: string;
+  stopAt: string;
+  active: boolean;
+};
+
+type ScheduleStats = { sent: number; acked: number; expired: number; pending: number; ackRate: number; };
+
+
 type NewTaskForm = {
   title: string;
   description: string;
@@ -827,6 +840,66 @@ const [schedEveryMin, setSchedEveryMin] = useState<number>(15);
 const [schedTz, setSchedTz] = useState<string>('Asia/Kathmandu');
 const [schedCreating, setSchedCreating] = useState(false);
 
+const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
+const [schedStats, setSchedStats] = useState<Record<string, ScheduleStats>>({});
+const [schedulesLoading, setSchedulesLoading] = useState(false);
+const [schedulesError, setSchedulesError] = useState<string | null>(null);
+
+async function fetchSchedulesAndStats() {
+  try {
+    setSchedulesLoading(true);
+    setSchedulesError(null);
+
+    const res = await fetch('/api/admin/schedules', { credentials: 'include', headers: { ...buildAuthHeaders() } });
+    const j = await res.json();
+    if (!res.ok || !j?.ok) throw new Error(j?.error || `Failed to load schedules (${res.status})`);
+
+    const list: ScheduleRow[] = j.schedules || [];
+    setSchedules(list);
+
+    // batch stats calls
+    const statsResults = await Promise.allSettled(
+      list.map(s =>
+        fetch(`/api/admin/schedules/${s._id}/stats`, { credentials: 'include', headers: { ...buildAuthHeaders() } })
+          .then(r => r.json())
+      )
+    );
+    const map: Record<string, ScheduleStats> = {};
+    statsResults.forEach((r, i) => {
+      const id = list[i]._id;
+      if (r.status === 'fulfilled' && r.value?.ok) map[id] = r.value.stats;
+    });
+    setSchedStats(map);
+  } catch (e: any) {
+    setSchedulesError(e.message || 'Failed to load schedules');
+  } finally {
+    setSchedulesLoading(false);
+  }
+}
+
+
+useEffect(() => {
+  if (activeTab === 'notifications') fetchSchedulesAndStats();
+}, [activeTab]);
+
+
+
+
+function ScheduleStatsChips({ stats }: { stats?: ScheduleStats }) {
+  if (!stats) return <small className="muted">—</small>;
+  const notAck = stats.expired + stats.pending;
+  return (
+    <div className="chips">
+      <span className="pill pill-blue">Sent {stats.sent}</span>
+      <span className="pill pill-green">Ack {stats.acked}</span>
+      <span className="pill pill-red">Not {notAck}</span>
+      <span className="pill">Ack {(stats.ackRate * 100).toFixed(0)}%</span>
+    </div>
+  );
+}
+
+
+
  function toISOFromLocalLocalInput(v: string): string | null {
   // expects "yyyy-mm-ddTHH:mm" from <input type="datetime-local">
   if (!v) return null;
@@ -899,7 +972,6 @@ async function schedulePushForSelected(e: React.FormEvent) {
   try {
     setSchedCreating(true);
 
-    // Create schedules (one per employee)
     const results = await Promise.allSettled(
       notifSelectedIds.map(empId =>
         fetch('/api/schedules', {
@@ -907,9 +979,7 @@ async function schedulePushForSelected(e: React.FormEvent) {
           credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
-            // If your /api/schedule requires x-admin-token, add it here:
-            // 'x-admin-token': '<ADMIN_TOKEN_FROM_SECURE_PLACE>',
-            ...buildAuthHeaders(),
+            ...buildAuthHeaders(),              // ✅ spread instead of `.buildAuthHeaders()`
           },
           body: JSON.stringify({
             employeeId: empId,
@@ -925,15 +995,16 @@ async function schedulePushForSelected(e: React.FormEvent) {
       )
     );
 
-    // Count successes
     const okCount = results.filter(r => r.status === 'fulfilled' && (r as any).value?.ok).length;
     if (okCount === 0) {
       console.error(results);
       show('Failed to create schedules', 'error');
     } else {
       show(`Created ${okCount} schedule(s)`);
-      // optional: clear fields
       setSchedStart(''); setSchedStop(''); setSchedEveryMin(15);
+
+      // 🔄 refresh list & stats **here**, not during render:
+      await fetchSchedulesAndStats();
     }
   } catch (err: any) {
     show(err?.message || 'Failed to create schedules', 'error');
@@ -942,6 +1013,7 @@ async function schedulePushForSelected(e: React.FormEvent) {
   }
 }
 
+useEffect(() => { fetchSchedulesAndStats(); }, []);
 
 const filteredNotifEmployees = useMemo(() => {
   const q = notifSearch.trim().toLowerCase();
@@ -3778,6 +3850,22 @@ function splitISOToLocalDateTime(iso: string) {
       )}
     </div>
 
+    {/* Live preview */}
+    <div className="subcard">
+      <h3>Preview</h3>
+      <div className="hm-feed">
+        <div className="hm-feed-item">
+          <div className="hm-feed-line">
+            <strong>PCOMS</strong>
+            <span className="hm-feed-dot">•</span>
+            <em>{notifTitle || 'Notification title…'}</em>
+          </div>
+          <div className="hm-feed-msg">{notifBody || 'Notification message preview…'}</div>
+          {notifUrl ? <small className="hm-feed-time">{notifUrl}</small> : null}
+        </div>
+      </div>
+    </div>    
+
     {/* Sent Notifications History */}
     <div className="subcard">
       <div className="card-header" style={{ gap: 8 }}>
@@ -3844,22 +3932,54 @@ function splitISOToLocalDateTime(iso: string) {
         </div>
       )}
     </div>
+<div className="card" style={{ marginTop: 16 }}>
+  <div className="card-head">
+    <h4>Schedules</h4>
+    <button className="hm-btn hm-secondary hm-sm" onClick={fetchSchedulesAndStats} disabled={schedulesLoading}>
+      {schedulesLoading ? 'Refreshing…' : 'Refresh'}
+    </button>
+  </div>
 
-    {/* Live preview */}
-    <div className="subcard">
-      <h3>Preview</h3>
-      <div className="hm-feed">
-        <div className="hm-feed-item">
-          <div className="hm-feed-line">
-            <strong>PCOMS</strong>
-            <span className="hm-feed-dot">•</span>
-            <em>{notifTitle || 'Notification title…'}</em>
-          </div>
-          <div className="hm-feed-msg">{notifBody || 'Notification message preview…'}</div>
-          {notifUrl ? <small className="hm-feed-time">{notifUrl}</small> : null}
-        </div>
-      </div>
+  {schedulesError && <div className="hm-error"><span>{schedulesError}</span></div>}
+
+  {schedules.length === 0 ? (
+    <div className="hm-empty">No schedules yet</div>
+  ) : (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Employee</th>
+            <th>Window</th>
+            <th>Every</th>
+            <th>Status</th>
+            <th>Stats</th>
+          </tr>
+        </thead>
+        <tbody>
+          {schedules.map(s => (
+            <tr key={s._id}>
+              <td>{s.title}</td>
+              <td>{employees.find(e => e._id === s.employeeId)?.name || s.employeeId}</td>
+              <td>{new Date(s.startAt).toLocaleString()} → {new Date(s.stopAt).toLocaleString()}</td>
+              <td>{s.everyMinutes} min</td>
+              <td>
+                <span className={`badge ${s.active ? 'badge-green' : 'badge-gray'}`}>
+                  {s.active ? 'ACTIVE' : 'INACTIVE'}
+                </span>
+              </td>
+              <td><ScheduleStatsChips stats={schedStats[s._id]} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
+  )}
+</div>
+
+
+    
   </section>
 )}
 

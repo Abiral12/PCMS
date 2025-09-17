@@ -68,15 +68,18 @@ const res = await fetch(`${(process.env.APP_URL || '').replace(/\/+$/, '')}/api/
     'x-admin-token': process.env.ADMIN_TOKEN || '',
   },
   body: JSON.stringify({
+    scheduleId: String(schedule._id),        
+    employeeIds: [String(employeeId ?? schedule.employeeId)],
     title: title ?? schedule.title,
-    body: body ?? schedule.body,
-    url: url ?? schedule.url,
-    employeeIds: [targetId],        // ✅ what your push API expects
+    body:  body  ?? schedule.body,
+    url:   url   ?? schedule.url,
   }),
 });
 
 
-  const j = await res.json().catch(() => ({}));
+  console.log('[tick] /api/push/send status', res.status);  // 👈 add this
+const j = await res.json().catch(() => ({}));
+console.log('[tick] /api/push/send body', j);  // 👈 add this
   if (!res.ok || !j?.ok) {
     console.error('[tick] push send failed', res.status, j);
     return NextResponse.json({ ok: false, error: 'Push send failed', detail: j }, { status: 500 });
