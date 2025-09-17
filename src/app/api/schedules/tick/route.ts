@@ -58,19 +58,23 @@ export const POST = verifySignatureAppRouter(async (req: NextRequest) => {
 
   // 6) Send push via your existing endpoint
   const base = (process.env.APP_URL || '').replace(/\/+$/, '');
-  const res = await fetch(`${base}/api/push/send`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-admin-token': process.env.ADMIN_TOKEN || '',
-    },
-    body: JSON.stringify({
-      title: title ?? schedule.title,
-      body: body ?? schedule.body,
-      url: url ?? schedule.url,
-      employeeId: employeeId ?? schedule.employeeId,
-    }),
-  });
+// AFTER — always send an array (and cast to string)
+const targetId = String(employeeId ?? schedule.employeeId);
+
+const res = await fetch(`${(process.env.APP_URL || '').replace(/\/+$/, '')}/api/push/send`, {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-admin-token': process.env.ADMIN_TOKEN || '',
+  },
+  body: JSON.stringify({
+    title: title ?? schedule.title,
+    body: body ?? schedule.body,
+    url: url ?? schedule.url,
+    employeeIds: [targetId],        // ✅ what your push API expects
+  }),
+});
+
 
   const j = await res.json().catch(() => ({}));
   if (!res.ok || !j?.ok) {
