@@ -4,7 +4,7 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
-const SW_VERSION = 'v9';
+const SW_VERSION = 'v10';
 console.log('SW', SW_VERSION, 'loaded');
 
 // helper: broadcast debug/status to all open pages
@@ -45,7 +45,10 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const { url, id, deliveryId } = event.notification.data || {};
-  const ACK = `${self.location.origin}/api/push/ack`;
+  const ackOrigin = (() => {
+   try { return new URL(url).origin; } catch { return self.location.origin; }
+ })();
+ const ACK = `${ackOrigin}/api/push/ack`;
 
    async function tryAck({ deliveryId, notifId }) {
    if (!deliveryId && !notifId) {
