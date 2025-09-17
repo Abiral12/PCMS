@@ -4,7 +4,7 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
-const SW_VERSION = 'v8';
+const SW_VERSION = 'v9';
 console.log('SW', SW_VERSION, 'loaded');
 
 // helper: broadcast debug/status to all open pages
