@@ -476,6 +476,9 @@ function HolidaysModal({
 
   if (!open) return null;
 
+ 
+
+
   return (
     <div className="hm-backdrop" onClick={onBackdropClick} aria-modal="true" role="dialog">
       <div className="hm-modal" role="document" aria-labelledby="hm-title">
@@ -817,6 +820,128 @@ const [notifSearch, setNotifSearch] = useState('');
 // Notifications state
 const [notifications, setNotifications] = useState<any[]>([]);
 const [loadingNotifications, setLoadingNotifications] = useState(false);
+
+const [schedStart, setSchedStart] = useState<string>('');   // yyyy-mm-ddTHH:mm (local)
+const [schedStop, setSchedStop]   = useState<string>('');   // yyyy-mm-ddTHH:mm (local)
+const [schedEveryMin, setSchedEveryMin] = useState<number>(15);
+const [schedTz, setSchedTz] = useState<string>('Asia/Kathmandu');
+const [schedCreating, setSchedCreating] = useState(false);
+
+ function toISOFromLocalLocalInput(v: string): string | null {
+  // expects "yyyy-mm-ddTHH:mm" from <input type="datetime-local">
+  if (!v) return null;
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function SchedulerPreview({ start, stop, everyMin }: { start: string; stop: string; everyMin: number }) {
+  if (!start || !stop || !everyMin) {
+    return <small className="muted">Pick Start, Stop and Every to see the next run preview.</small>;
+  }
+  const startDate = new Date(start);
+  const stopDate  = new Date(stop);
+  if (isNaN(startDate.getTime()) || isNaN(stopDate.getTime()) || stopDate <= startDate) {
+    return <div className="error-box">Invalid window. Stop must be after Start.</div>;
+  }
+
+  // compute next 5
+  const now = new Date();
+  const first = new Date(Math.max(startDate.getTime(), now.getTime()));
+  first.setSeconds(0, 0);
+  // round up to next interval
+  const msStep = everyMin * 60 * 1000;
+  const roundUp = new Date(Math.ceil(first.getTime() / msStep) * msStep);
+
+  const runs: string[] = [];
+  let t = roundUp;
+  for (let i = 0; i < 5 && t <= stopDate; i++) {
+    runs.push(`${t.toLocaleDateString()} ${t.toLocaleTimeString()}`);
+    t = new Date(t.getTime() + msStep);
+  }
+
+  return (
+    <div className="subcard">
+      <div className="sched-preview-head">
+        <strong>Preview</strong>
+        <span className="pill pill-gray">{everyMin} min</span>
+      </div>
+      {runs.length ? (
+        <ul className="sched-preview">
+          {runs.map((r, i) => <li key={i}>{r}</li>)}
+        </ul>
+      ) : (
+        <small className="muted">No occurrences within the selected window.</small>
+      )}
+    </div>
+  );
+}
+
+
+async function schedulePushForSelected(e: React.FormEvent) {
+  e.preventDefault();
+  setNotifError(null);
+
+  if (!notifTitle.trim() || !notifBody.trim()) {
+    show('Title and message are required', 'error'); return;
+  }
+  if (notifSelectedIds.length === 0) {
+    show('Select at least one employee', 'error'); return;
+  }
+  if (!schedStart || !schedStop || !schedEveryMin) {
+    show('Start, Stop and Every minutes are required', 'error'); return;
+  }
+
+  const startISO = toISOFromLocalLocalInput(schedStart);
+  const stopISO  = toISOFromLocalLocalInput(schedStop);
+  if (!startISO || !stopISO) { show('Invalid date/time', 'error'); return; }
+
+  try {
+    setSchedCreating(true);
+
+    // Create schedules (one per employee)
+    const results = await Promise.allSettled(
+      notifSelectedIds.map(empId =>
+        fetch('/api/schedules', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            // If your /api/schedule requires x-admin-token, add it here:
+            // 'x-admin-token': '<ADMIN_TOKEN_FROM_SECURE_PLACE>',
+            ...buildAuthHeaders(),
+          },
+          body: JSON.stringify({
+            employeeId: empId,
+            title: notifTitle.trim(),
+            body: notifBody.trim(),
+            url: notifUrl.trim() || undefined,
+            everyMinutes: Number(schedEveryMin),
+            startAt: startISO,
+            stopAt: stopISO,
+            tz: schedTz || 'Asia/Kathmandu',
+          }),
+        }).then(r => r.json())
+      )
+    );
+
+    // Count successes
+    const okCount = results.filter(r => r.status === 'fulfilled' && (r as any).value?.ok).length;
+    if (okCount === 0) {
+      console.error(results);
+      show('Failed to create schedules', 'error');
+    } else {
+      show(`Created ${okCount} schedule(s)`);
+      // optional: clear fields
+      setSchedStart(''); setSchedStop(''); setSchedEveryMin(15);
+    }
+  } catch (err: any) {
+    show(err?.message || 'Failed to create schedules', 'error');
+  } finally {
+    setSchedCreating(false);
+  }
+}
+
 
 const filteredNotifEmployees = useMemo(() => {
   const q = notifSearch.trim().toLowerCase();
@@ -3401,6 +3526,174 @@ function splitISOToLocalDateTime(iso: string) {
           />
           <small className="muted">When the user clicks the notification, this URL will open or focus.</small>
         </div>
+{/* SCHEDULER CARD — attach a recurring schedule */}
+<div className="card sched-card">
+  <div className="card-header">
+    <h4 className="sched-title">Schedule (optional)</h4>
+    <span className="meta">
+      <span className="pill">{notifSelectedIds.length || 0} selected</span>
+      <span className="pill pill-gray">will repeat</span>
+    </span>
+  </div>
+
+  {/* grid */}
+  <div className="grid-2">
+    <div className="field">
+      <label>Start</label>
+      <input
+        className="input"
+        type="datetime-local"
+        value={schedStart}
+        onChange={(e) => setSchedStart(e.target.value)}
+        placeholder="YYYY-MM-DDTHH:mm"
+      />
+      <div className="preset-group">
+        <button
+          type="button"
+          className="btn secondary small"
+          onClick={() => {
+            const d = new Date();
+            d.setMinutes(d.getMinutes() + 2);
+            const v = new Date(d.getTime() - d.getTimezoneOffset()*60000)
+              .toISOString().slice(0,16);
+            setSchedStart(v);
+          }}
+        >
+          Start in 2m
+        </button>
+        <button
+          type="button"
+          className="btn secondary small"
+          onClick={() => {
+            const d = new Date();
+            d.setHours(d.getHours() + 1, 0, 0, 0);
+            const v = new Date(d.getTime() - d.getTimezoneOffset()*60000)
+              .toISOString().slice(0,16);
+            setSchedStart(v);
+          }}
+        >
+          Top of next hour
+        </button>
+        <button
+          type="button"
+          className="btn secondary small"
+          onClick={() => {
+            const d = new Date(); d.setHours(9,0,0,0); // today 09:00 local
+            if (d.getTime() < Date.now()) d.setDate(d.getDate()+1); // tomorrow if past
+            const v = new Date(d.getTime() - d.getTimezoneOffset()*60000)
+              .toISOString().slice(0,16);
+            setSchedStart(v);
+          }}
+        >
+          Tomorrow 09:00
+        </button>
+      </div>
+    </div>
+
+    <div className="field">
+      <label>Stop</label>
+      <input
+        className="input"
+        type="datetime-local"
+        value={schedStop}
+        onChange={(e) => setSchedStop(e.target.value)}
+        placeholder="YYYY-MM-DDTHH:mm"
+      />
+      <div className="preset-group">
+        <button
+          type="button"
+          className="btn secondary small"
+          onClick={() => {
+            // 24h after start
+            if (!schedStart) return;
+            const base = new Date(schedStart);
+            const d = new Date(base.getTime() + 24*60*60000);
+            const v = new Date(d.getTime() - d.getTimezoneOffset()*60000)
+              .toISOString().slice(0,16);
+            setSchedStop(v);
+          }}
+        >
+          +24 hours
+        </button>
+        <button
+          type="button"
+          className="btn secondary small"
+          onClick={() => {
+            // end of today 23:59
+            const d = new Date();
+            d.setHours(23,59,0,0);
+            const v = new Date(d.getTime() - d.getTimezoneOffset()*60000)
+              .toISOString().slice(0,16);
+            setSchedStop(v);
+          }}
+        >
+          Today 23:59
+        </button>
+      </div>
+    </div>
+
+    <div className="field">
+      <label>Every (minutes)</label>
+      <input
+        className="input"
+        type="number"
+        min={1}
+        max={60}
+        value={schedEveryMin}
+        onChange={(e) => setSchedEveryMin(Number(e.target.value || 15))}
+      />
+      <div className="preset-group">
+        {[1,5,10,15,30,60].map(n => (
+          <button
+            key={n}
+            type="button"
+            className={`btn small ${n===schedEveryMin ? 'info' : 'secondary'}`}
+            onClick={() => setSchedEveryMin(n)}
+          >
+            {n}m
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <div className="field">
+      <label>Timezone</label>
+      <select
+        className="input"
+        value={schedTz}
+        onChange={(e) => setSchedTz(e.target.value)}
+      >
+        {/* common TZs; default Nepal */}
+        <option value="Asia/Kathmandu">Asia/Kathmandu (GMT+5:45)</option>
+        <option value="Asia/Kolkata">Asia/Kolkata (GMT+5:30)</option>
+        <option value="Asia/Dhaka">Asia/Dhaka (GMT+6)</option>
+        <option value="Asia/Dubai">Asia/Dubai (GMT+4)</option>
+        <option value="Europe/London">Europe/London</option>
+        <option value="UTC">UTC</option>
+      </select>
+      <small className="muted">Cron will run in this timezone.</small>
+    </div>
+  </div>
+
+  {/* live preview */}
+  <div className="divider" />
+
+  <SchedulerPreview
+    start={schedStart}
+    stop={schedStop}
+    everyMin={schedEveryMin}
+  />
+
+  <div className="actions">
+    <button
+      className="btn primary"
+      onClick={schedulePushForSelected}
+      disabled={schedCreating || !notifTitle.trim() || !notifBody.trim() || !notifSelectedIds.length}
+    >
+      {schedCreating ? 'Creating schedules…' : `Create schedule for ${notifSelectedIds.length} employee(s)`}
+    </button>
+  </div>
+</div>
 
         <div className="actions">
           <button
@@ -3412,6 +3705,8 @@ function splitISOToLocalDateTime(iso: string) {
           </button>
         </div>
       </form>
+      
+
     </div>
 
     {/* Recipient picker */}
