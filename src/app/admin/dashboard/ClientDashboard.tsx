@@ -64,12 +64,14 @@ type Schedule = {
   title: string;
   body: string;
   url?: string;
-  everyMinutes: number;
-  startAt: string;  // ISO
-  stopAt: string;   // ISO
-  tz: string;
+  everyMinutes: number;   // 👈 matches API
+  startAt: string;        // ISO
+  stopAt: string;         // ISO (not endAt)
+  tz: string;             // e.g., 'Asia/Kathmandu'
   active: boolean;
   scheduleId?: string;
+  createdBy?: string;
+  createdAt?: string;
 };
 
 
