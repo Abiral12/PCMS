@@ -58,6 +58,19 @@ type ScheduleRow = {
 };
 
 type ScheduleStats = { sent: number; acked: number; expired: number; pending: number; ackRate: number; };
+type Schedule = {
+  _id: string;
+  employeeId: string;
+  title: string;
+  body: string;
+  url?: string;
+  everyMinutes: number;
+  startAt: string;  // ISO
+  stopAt: string;   // ISO
+  tz: string;
+  active: boolean;
+  scheduleId?: string;
+};
 
 
 type NewTaskForm = {
@@ -335,7 +348,110 @@ function HolidaysModal({
   >([]);
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
   
+const [schedules, setSchedules] = useState<Schedule[]>([])
+const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
+const [editSchedule, setEditSchedule] = useState<Partial<Schedule>>({
+  title: '',
+  intervalMinutes: undefined,
+  cron: '',
+  startAt: '',
+  endAt: '',
+  enabled: true,
+  audience: 'all',
+  employeeId: '',
+  url: '',
+});
 
+
+function startEditSchedule(s: Schedule) {
+  setEditingScheduleId(s._id);
+  setEditSchedule({
+    title: s.title ?? '',
+    intervalMinutes: s.intervalMinutes,
+    cron: s.cron ?? '',
+    startAt: s.startAt ?? '',
+    endAt: s.endAt ?? '',
+    enabled: !!s.enabled,
+    audience: s.audience ?? 'all',
+    employeeId: s.employeeId ?? '',
+    url: s.url ?? '',
+  });
+}
+
+function cancelEditSchedule() {
+  setEditingScheduleId(null);
+  setEditSchedule({
+    title: '',
+    intervalMinutes: undefined,
+    cron: '',
+    startAt: '',
+    endAt: '',
+    enabled: true,
+    audience: 'all',
+    employeeId: '',
+    url: '',
+  });
+}
+
+async function saveScheduleEdit() {
+  if (!editingScheduleId) return;
+  const payload = {
+    id: editingScheduleId,
+    title: (editSchedule.title ?? '').trim(),
+    // send either intervalMinutes OR cron (whatever you use)
+    intervalMinutes:
+      editSchedule.intervalMinutes && Number(editSchedule.intervalMinutes) > 0
+        ? Number(editSchedule.intervalMinutes)
+        : undefined,
+    cron: (editSchedule.cron ?? '').trim() || undefined,
+    startAt: (editSchedule.startAt ?? '').trim() || undefined,
+    endAt: (editSchedule.endAt ?? '').trim() || undefined,
+    enabled: !!editSchedule.enabled,
+    audience: editSchedule.audience ?? 'all',
+    employeeId:
+      (editSchedule.audience === 'employee' && (editSchedule.employeeId ?? '').trim()) || undefined,
+    url: (editSchedule.url ?? '').trim() || undefined,
+  };
+
+  try {
+    const res = await fetch('/api/admin/schedules', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to update schedule');
+
+    // optimistic local update
+    setSchedules(prev =>
+      prev.map(s => (s._id === editingScheduleId ? { ...s, ...payload } as Schedule : s))
+    );
+
+    cancelEditSchedule();
+  } catch (err) {
+    console.error(err);
+    alert((err as Error).message || 'Update failed');
+  }
+}
+
+async function deleteSchedule(id: string) {
+  if (!confirm('Delete this schedule?')) return;
+  try {
+    const res = await fetch(`/api/admin/schedules?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { ...buildAuthHeaders() },
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to delete schedule');
+
+    setSchedules(prev => prev.filter(s => s._id !== id));
+  } catch (err) {
+    console.error(err);
+    alert((err as Error).message || 'Delete failed');
+  }
+}
 
   
 
@@ -844,6 +960,43 @@ const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
 const [schedStats, setSchedStats] = useState<Record<string, ScheduleStats>>({});
 const [schedulesLoading, setSchedulesLoading] = useState(false);
 const [schedulesError, setSchedulesError] = useState<string | null>(null);
+
+
+const [loadingSchedules, setLoadingSchedules] = useState(false);
+
+async function fetchSchedules() {
+  setLoadingSchedules(true);
+  try {
+    const res = await fetch('/api/admin/schedules', { headers: { ...buildAuthHeaders() } });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      setSchedules(data.schedules || []);
+    } else {
+      throw new Error(data.error || 'Failed to load schedules');
+    }
+  } catch (e: any) {
+    show(e.message || 'Failed to load schedules', 'error');
+  } finally {
+    setLoadingSchedules(false);
+  }
+}
+
+async function deleteSchedule(id: string) {
+  if (!confirm('Delete this schedule?')) return;
+  try {
+    const res = await fetch('/api/admin/schedules', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to delete');
+    setSchedules(prev => prev.filter(s => s._id !== id));
+    show('Schedule deleted');
+  } catch (e: any) {
+    show(e.message || 'Failed to delete schedule', 'error');
+  }
+}
 
 async function forceCheckoutNow(emp: MaybeObjId, at?: string | null, reason = 'admin-force') {
   const id = asId(emp);               // <- normalize to string
@@ -3994,6 +4147,7 @@ onClick={() => forceCheckoutNow(record.employeeId)}
             <th>Every</th>
             <th>Status</th>
             <th>Stats</th>
+            <th className="text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -4009,6 +4163,14 @@ onClick={() => forceCheckoutNow(record.employeeId)}
                 </span>
               </td>
               <td><ScheduleStatsChips stats={schedStats[s._id]} /></td>
+               <td className="text-right">
+<button
+            className="hm-btn hm-danger hm-sm"
+            onClick={() => deleteSchedule(s._id)}
+          >
+            Delete
+          </button> 
+            </td>
             </tr>
           ))}
         </tbody>

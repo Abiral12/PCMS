@@ -129,3 +129,44 @@ export async function GET(_req: NextRequest) {
   const list = schedules.map(s => ({ ...s, _id: String(s._id), employeeId: String(s.employeeId) }));
   return NextResponse.json({ ok: true, schedules: list });
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    await dbConnect();
+
+    // --- admin guard ---
+    const hdr = req.headers.get('x-admin-token');
+    if (!process.env.ADMIN_TOKEN || hdr !== process.env.ADMIN_TOKEN) {
+      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await req.json();
+    if (!id) {
+      return NextResponse.json({ ok: false, error: 'Missing id' }, { status: 400 });
+    }
+
+    const schedule = await NotificationSchedule.findById(id);
+    if (!schedule) {
+      return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 });
+    }
+
+    // cancel schedule from QStash as well
+    if (schedule.scheduleId) {
+      try {
+        await client.schedules.delete(schedule.scheduleId);
+      } catch (e) {
+        console.warn('QStash delete failed', e);
+      }
+    }
+
+    await NotificationSchedule.deleteOne({ _id: id });
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || 'Delete failed' },
+      { status: 500 }
+    );
+  }
+}
+
