@@ -134,11 +134,13 @@ export async function DELETE(req: NextRequest) {
   try {
     await dbConnect();
 
-    // --- admin guard ---
-    const hdr = req.headers.get('x-admin-token');
-    if (!process.env.ADMIN_TOKEN || hdr !== process.env.ADMIN_TOKEN) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-    }
+   // --- admin guard: header OR cookie ---
+const headerToken = req.headers.get('x-admin-token');
+const cookieToken = req.cookies.get('admin_token')?.value;
+const headerOk   = !!process.env.ADMIN_TOKEN && headerToken === process.env.ADMIN_TOKEN;
+if (!headerOk && !cookieToken) {
+  return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+}
 
     const { id } = await req.json();
     if (!id) {
