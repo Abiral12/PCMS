@@ -845,6 +845,36 @@ const [schedStats, setSchedStats] = useState<Record<string, ScheduleStats>>({});
 const [schedulesLoading, setSchedulesLoading] = useState(false);
 const [schedulesError, setSchedulesError] = useState<string | null>(null);
 
+async function forceCheckoutNow(emp: MaybeObjId, at?: string | null, reason = 'admin-force') {
+  const id = asId(emp);               // <- normalize to string
+  if (!id) { show('Invalid employee id', 'error'); return; }
+
+  try {
+    const res = await fetch('/api/admin/attendance/force-checkout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      body: JSON.stringify({ employeeId: id, at: at ?? null, reason }),
+    });
+
+    // helpful diagnostics
+    const data = await res.json().catch(() => ({} as any));
+
+    if (res.status === 409) {
+      show(data?.error || 'Conflict: user likely has no open check-in or was already checked out.', 'error');
+      return;
+    }
+    if (!res.ok) throw new Error(data?.error || `Failed (${res.status})`);
+
+    show('Forced checkout recorded');
+    await fetchData();                 // refresh lists
+  } catch (e:any) {
+    show(e.message || 'Failed to force checkout', 'error');
+  }
+}
+
+
+
 async function fetchSchedulesAndStats() {
   try {
     setSchedulesLoading(true);
@@ -2471,6 +2501,7 @@ function splitISOToLocalDateTime(iso: string) {
                         <th>Type</th>
                         <th>Date & Time</th>
                         <th>Image</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2491,6 +2522,14 @@ function splitISOToLocalDateTime(iso: string) {
                               <span className="muted">No image</span>
                             )}
                           </td>
+                          <td><button
+  className="hm-btn hm-danger hm-sm"
+onClick={() => forceCheckoutNow(record.employeeId)}
+  title="Force checkout now"
+>
+  Force checkout
+</button>
+                             </td>
                         </tr>
                       ))}
                     </tbody>
