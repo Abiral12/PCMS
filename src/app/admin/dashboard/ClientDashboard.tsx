@@ -371,7 +371,7 @@ function HolidaysModal({
     try {
       setProgLoading(true);
       setProgError(null);
-      const res = await fetch('/api/admin/tasks/progress?limit=50', { headers: { ...buildAuthHeaders() } });
+  const res = await fetch('/api/admin/tasks/progress?limit=50', { credentials: 'include', headers: { ...buildAuthHeaders() } });
       if (!res.ok) throw new Error('Failed to load progress updates');
       const data = await res.json();
       setProgressList(Array.isArray(data.updates) ? data.updates : []);
@@ -862,7 +862,7 @@ const [loadingSchedules, setLoadingSchedules] = useState(false);
 async function fetchSchedules() {
   setLoadingSchedules(true);
   try {
-    const res = await fetch('/api/admin/schedules', { headers: { ...buildAuthHeaders() } });
+  const res = await fetch('/api/admin/schedules', { credentials: 'include', headers: { ...buildAuthHeaders() } });
     const data = await res.json();
     if (res.ok && data.ok) {
       setSchedules(data.schedules || []);
@@ -881,6 +881,7 @@ async function deleteSchedule(id: string) {
   try {
     const res = await fetch('/api/admin/schedules', {
       method: 'DELETE',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
       body: JSON.stringify({ id }),
     });
@@ -1436,7 +1437,7 @@ async function fetchProgressUpdates(date?: string) {
 
     const qs = new URLSearchParams({ limit: '100' });
     if (date) qs.set('date', date);           // backend supports ?date=YYYY-MM-DD
-    const res = await fetch(`/api/admin/tasks/progress?${qs}`, { headers: { ...authHeaders() } });
+  const res = await fetch(`/api/admin/tasks/progress?${qs}`, { credentials: 'include', headers: { ...buildAuthHeaders() } });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to load progress updates');
 
@@ -1856,6 +1857,7 @@ const handleUpdateEmployee = async (e: React.FormEvent) => {
 
     const res = await fetch('/api/admin/employees', {
       method: 'PUT',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
       body: JSON.stringify(payload),
     });
@@ -1876,6 +1878,7 @@ const handleDeleteEmployee = async (employeeId: string) => {
   try {
     const res = await fetch(`/api/admin/employees?id=${employeeId}`, {
       method: 'DELETE',
+      credentials: 'include',
       headers: { ...buildAuthHeaders() },
     });
     const data = await res.json();
@@ -1937,7 +1940,7 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
     while (cursor.getTime() <= end.getTime()) {
       const d = isoDate(cursor);
       try {
-        const res = await fetch(`/api/admin/tasks/progress?date=${d}&limit=500`, { headers: { ...buildAuthHeaders() } });
+  const res = await fetch(`/api/admin/tasks/progress?date=${d}&limit=500`, { credentials: 'include', headers: { ...buildAuthHeaders() } });
         if (res.ok) {
           const j = await res.json();
           if (Array.isArray(j.updates)) {
@@ -2125,6 +2128,7 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
       setCreating(true); setError(null);
       const res = await fetch('/api/admin/employees', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
         body: JSON.stringify(newEmployee),
       });
@@ -2327,6 +2331,7 @@ const startEditingTask = (t: Task) => {
     };
       const res = await fetch('/api/admin/tasks', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
       body: JSON.stringify(payload),
     });
@@ -2360,6 +2365,7 @@ const startEditingTask = (t: Task) => {
 
     const res = await fetch('/api/admin/tasks', {
       method: 'PUT',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
       body: JSON.stringify(payload),
     });
@@ -2404,6 +2410,7 @@ const handleDeleteTask = async (taskId: string) => {
   try {
     const res = await fetch(`/api/admin/tasks?id=${taskId}`, {   // ← use ?id=
       method: 'DELETE',
+      credentials: 'include',
       headers: { ...buildAuthHeaders() },
     });
     const data = await res.json();
