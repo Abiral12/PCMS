@@ -147,6 +147,7 @@ export default function Dashboard() {
   // track which task descriptions are expanded (show full text)
   const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
   const [progressMessage, setProgressMessage] = useState("");
+  const [progressType, setProgressType] = useState<"note" | "issue" | "milestone">("note");
   const [showCameraPopup, setShowCameraPopup] = useState(false);
   const [checkType, setCheckType] = useState<"checkin" | "checkout" | null>(
     null
@@ -1644,35 +1645,88 @@ export default function Dashboard() {
             {/* Progress Update Modal */}
             {showProgressForm && (
               <div className="modal-overlay">
-                <div className="modal">
-                  <h3>Add Progress Update</h3>
-                  <textarea
-                    value={progressMessage}
-                    onChange={(e) => setProgressMessage(e.target.value)}
-                    placeholder="What progress have you made on this task?"
-                    rows={4}
-                  />
-                  <div className="modal-actions">
+                <div className="modal progress-modal">
+                  <div className="progress-modal-header">
+                    <div>
+                      <h3>Add Progress Update</h3>
+                      <p className="muted">Add a short update to this task</p>
+                    </div>
                     <button
+                      className="close-btn"
                       onClick={() => {
                         setShowProgressForm(false);
                         setSelectedTask(null);
                         setProgressMessage("");
                       }}
-                      className="secondary-btn"
+                      aria-label="Close"
                     >
-                      Cancel
+                      ✕
                     </button>
-                    <button
-                      onClick={() =>
-                        selectedTask &&
-                        addProgressUpdate(selectedTask, progressMessage)
-                      }
-                      className="primary-btn"
-                      disabled={!progressMessage.trim()}
-                    >
-                      Add Update
-                    </button>
+                  </div>
+
+                  <div className="progress-modal-body">
+                    <div className="progress-task-meta">
+                      <div className="task-meta-left">
+                        <strong>
+                          {allTasks.find((t) => t._id === selectedTask)?.title ||
+                            (myTasks.find((t) => t._id === selectedTask)?.title) ||
+                            "Task"}
+                        </strong>
+                        <div className="muted small">
+                          {selectedTask
+                            ? `Updating task • ${new Date().toLocaleDateString()}`
+                            : "No task selected"}
+                        </div>
+                      </div>
+
+                      <div className="task-meta-right">
+                        <label className="small muted">Type</label>
+                        <select
+                          value={progressType}
+                          onChange={(e) => setProgressType(e.target.value as any)}
+                        >
+                          <option value="note">Note</option>
+                          <option value="issue">Issue</option>
+                          <option value="milestone">Milestone</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <textarea
+                      className="progress-textarea"
+                      value={progressMessage}
+                      onChange={(e) => setProgressMessage(e.target.value)}
+                      placeholder="Describe what you did, blockers, or next steps..."
+                      rows={6}
+                    />
+
+                    <div className="progress-meta-row">
+                      <div className="char-count muted">
+                        {progressMessage.length} / 1000
+                      </div>
+                      <div className="progress-actions">
+                        <button
+                          className="btn secondary"
+                          onClick={() => {
+                            setShowProgressForm(false);
+                            setSelectedTask(null);
+                            setProgressMessage("");
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          className="btn primary"
+                          onClick={() =>
+                            selectedTask &&
+                            addProgressUpdate(selectedTask, progressMessage)
+                          }
+                          disabled={!progressMessage.trim()}
+                        >
+                          Post Update
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3180,6 +3234,37 @@ export default function Dashboard() {
           margin-top: 8px;
         }
         .see-more-btn:hover{ text-decoration: underline; }
+        /* Progress modal improvements */
+        .progress-modal{
+          max-width: 720px;
+          width: 95%;
+          padding: 18px;
+          border-radius: 14px;
+        }
+        .progress-modal-header{
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+        .progress-modal-header h3{ margin: 0; }
+        .progress-modal-body{ display: flex; flex-direction: column; gap: 12px; }
+        .progress-task-meta{ display:flex; justify-content:space-between; align-items:center; gap:12px; }
+        .task-meta-left strong{ font-size:16px; }
+        .task-meta-right select{ padding:6px 8px; border-radius:8px; }
+        .progress-textarea{ width:100%; min-height:120px; padding:12px; border-radius:10px; border:1px solid #e6eef6; resize:vertical; font-size:14px; }
+        .progress-meta-row{ display:flex; justify-content:space-between; align-items:center; gap:12px; }
+        .char-count{ font-size:13px; }
+        .progress-actions{ display:flex; gap:8px; }
+
+        /* Modal overlay adjustments (center on wide screens) */
+        .modal-overlay{ position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(4,6,11,0.45); z-index:1000; padding:20px; }
+
+        @media (max-width:600px){
+          .progress-modal{ width: 100%; padding: 14px; border-radius: 12px; }
+          .progress-task-meta{ flex-direction:column; align-items:flex-start; }
+        }
         .task-meta {
           display: flex;
           flex-wrap: wrap;
