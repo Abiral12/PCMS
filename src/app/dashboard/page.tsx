@@ -144,6 +144,8 @@ export default function Dashboard() {
   /* --------- UI state --------- */
   const [showProgressForm, setShowProgressForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
+  // track which task descriptions are expanded (show full text)
+  const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
   const [progressMessage, setProgressMessage] = useState("");
   const [showCameraPopup, setShowCameraPopup] = useState(false);
   const [checkType, setCheckType] = useState<"checkin" | "checkout" | null>(
@@ -1579,7 +1581,25 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <p className="task-description">{task.description}</p>
+                    {/* Task description: truncate if long and allow expanding */}
+                    <p className={`task-description ${expandedTasks[task._id] ? 'expanded' : ''}`}>
+                      {task.description && task.description.length > 220 && !expandedTasks[task._id]
+                        ? task.description.slice(0, 220) + "..."
+                        : task.description}
+                    </p>
+                    {task.description && task.description.length > 220 && (
+                      <button
+                        className="btn-link see-more-btn"
+                        onClick={() =>
+                          setExpandedTasks((prev) => ({
+                            ...prev,
+                            [task._id]: !prev[task._id],
+                          }))
+                        }
+                      >
+                        {expandedTasks[task._id] ? "See less" : "See more"}
+                      </button>
+                    )}
 
                     <div className="task-meta">
                       <span
@@ -3143,6 +3163,23 @@ export default function Dashboard() {
           -webkit-box-orient: vertical;
           overflow: hidden;
         }
+        /* When expanded, remove the clamp so full text displays */
+        .task-description.expanded {
+          display: block;
+          -webkit-line-clamp: unset;
+          -webkit-box-orient: unset;
+          overflow: visible;
+        }
+        .see-more-btn{
+          background: none;
+          border: none;
+          color: #3498db;
+          padding: 6px 0;
+          cursor: pointer;
+          font-weight: 600;
+          margin-top: 8px;
+        }
+        .see-more-btn:hover{ text-decoration: underline; }
         .task-meta {
           display: flex;
           flex-wrap: wrap;

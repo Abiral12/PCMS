@@ -203,7 +203,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Hard delete: remove the document
-    const toDelete = await Employee.findById(id).select('-passwordHash');
+    const toDelete = await Employee.findByIdAndDelete(id).select('-passwordHash');
     if (!toDelete) {
       return NextResponse.json(
         { success: false, error: 'Employee not found' },

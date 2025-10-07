@@ -39,20 +39,12 @@ export default function Login() {
           const maxAge = 60 * 60 * 24 * 30; // 30 days
           document.cookie = `employeeId=${employeeId}; Path=/; SameSite=Lax; Max-Age=${maxAge}`;
         }
-
-        // Also set the token as a cookie so server-side routes reading cookies can authenticate
-        if (data?.token && typeof document !== 'undefined') {
-          const maxAge = 60 * 60 * 24 * 30; // 30 days
-          // Prefer SameSite=Lax and Path=/; Secure if in production
-          const secure = location.protocol === 'https:' ? '; Secure' : '';
-          document.cookie = `token=${data.token}; Path=/; SameSite=Lax; Max-Age=${maxAge}${secure}`;
-        }
       } catch {
         // ignore cookie errors
       }
 
       router.push('/dashboard');
-    } catch (err) {
+    } catch (err: any) {
       setError('Something went wrong');
       console.error(err);
     }
