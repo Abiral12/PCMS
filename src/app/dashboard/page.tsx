@@ -446,7 +446,7 @@ export default function Dashboard() {
     if (!empId) return;
     try {
       const res = await fetch(
-        `/api/admin/attendance?employeeId=${empId}&limit=20`
+        `/api/attendance?employeeId=${empId}&limit=20`
       );
       const data = await res.json();
       const mapped: CheckInOutData[] = (data.attendance || []).map(
