@@ -1449,7 +1449,7 @@ export default function Dashboard() {
               {perms.canCheckIn && (
                 <div className="check-buttons">
                   <button
-                    className="primary-btn"
+                    className="primary-btn  "
                     onClick={() => {
                       setCheckType("checkin");
                       setShowCameraPopup(true);
@@ -1457,15 +1457,15 @@ export default function Dashboard() {
                   >
                     Check In
                   </button>
-                  {/* <button
-                    className="secondary-btn"
+                  <button
+                    className="danger-btn"
                     onClick={() => {
                       setCheckType("checkout");
                       setShowCameraPopup(true);
                     }}
                   >
                     Check Out
-                  </button> */}
+                  </button> 
                 </div>
               )}
 
@@ -3104,6 +3104,17 @@ export default function Dashboard() {
           padding: 10px 20px;
           font-weight: 600;
         }
+
+        /* Rounded red button for checkout */
+        .danger-btn {
+          border-radius: 9999px;
+          padding: 10px 20px;
+          margin-left: 10px;
+          font-weight: 600;
+          background: #e74c3c;
+          color: #fff;
+        }
+        .danger-btn:hover { background: #c0392b; }
 
         .table-wrap {
           overflow-x: auto;
