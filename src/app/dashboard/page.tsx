@@ -133,6 +133,7 @@ export default function Dashboard() {
 
   /* --------- Employee self data --------- */
   const [checkRecords, setCheckRecords] = useState<CheckInOutData[]>([]);
+  const [totalCounts, setTotalCounts] = useState<{checkins: number, checkouts: number}>({checkins: 0, checkouts: 0});
   const [myTasks, setMyTasks] = useState<Task[]>([]);
   const [lunchTimes, setLunchTimes] = useState<LunchTime[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -445,6 +446,21 @@ export default function Dashboard() {
     }
   }, []);
 
+  const loadTotalCounts = useCallback(async (empId: string) => {
+    if (!empId) return;
+    try {
+      const res = await fetch(
+        `/api/attendance/total-counts?employeeId=${empId}`
+      );
+      const data = await res.json();
+      if (data.success) {
+        setTotalCounts(data.totalCounts);
+      }
+    } catch (e) {
+      console.error("Failed to load total counts", e);
+    }
+  }, []);
+
   const loadAttendance = useCallback(async (empId: string) => {
     if (!empId) return;
     try {
@@ -610,6 +626,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (employeeId) {
       loadAttendance(employeeId);
+      loadTotalCounts(employeeId);
       loadTasks(employeeId);
       loadLunchTimes(employeeId);
       loadLunchLogs(employeeId);
@@ -621,6 +638,7 @@ export default function Dashboard() {
   }, [
     employeeId,
     loadAttendance,
+    loadTotalCounts,
     loadTasks,
     loadLunchTimes,
     loadLunchLogs,
@@ -1004,6 +1022,8 @@ export default function Dashboard() {
   /* ================== Helpers ================== */
   const handleCheckInOut = (data: CheckInOutData) => {
     setCheckRecords((prev) => [{ ...data }, ...prev]);
+    // Refresh total counts after check-in/out
+    loadTotalCounts(employeeId);
   };
   const handleLogout = () => {
     localStorage.removeItem("employee");
@@ -1491,10 +1511,12 @@ export default function Dashboard() {
                 <p>Completed Tasks</p>
               </div>
               <div className="stat-card">
-                <h3>
-                  {checkRecords.filter((r) => r.type === "checkin").length}
-                </h3>
-                <p>Check-ins This Week</p>
+                <h3>{totalCounts.checkins}</h3>
+                <p>Total Check-ins</p>
+              </div>
+              <div className="stat-card">
+                <h3>{totalCounts.checkouts}</h3>
+                <p>Total Check-outs</p>
               </div>
             </div>
           </section>
@@ -1508,7 +1530,10 @@ export default function Dashboard() {
               <button
                 className="btn icon"
                 title="Refresh"
-                onClick={() => loadAttendance(employeeId)}
+                onClick={() => {
+                  loadAttendance(employeeId);
+                  loadTotalCounts(employeeId);
+                }}
               >
                 <RefreshCw size={16} />
               </button>
