@@ -139,7 +139,7 @@ export default function Dashboard() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [lunchLogs, setLunchLogs] = useState<LunchLog[]>([]);
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "attendance" | "tasks" | "lunch" | "holidays" | "admin"
+    "dashboard" | "attendance" | "tasks" | "lunch" | "holidays" | "admin" | "rules"
   >("dashboard");
 
   /* --------- UI state --------- */
@@ -246,6 +246,8 @@ export default function Dashboard() {
   const [announcements, setAnnouncements] = useState<BroadcastMessage[]>([]);
   const [loadingAnnouncements, setLoadingAnnouncements] =
     useState<boolean>(false);
+  const [rules, setRules] = useState<Array<{ _id: string; title: string; body: string; order?: number }>>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
   const [showUrgent, setShowUrgent] = useState<boolean>(false);
 
   const [showLunchCam, setShowLunchCam] = useState(false);
@@ -405,6 +407,21 @@ export default function Dashboard() {
       console.error(e);
     } finally {
       setLoadingAnnouncements(false);
+    }
+  }, []);
+
+  const loadRules = useCallback(async () => {
+    try {
+      setRulesLoading(true);
+      const res = await fetch('/api/rules');
+      const j = await res.json();
+      if (!res.ok || !j?.success) throw new Error(j?.error || 'Failed to load rules');
+      setRules(Array.isArray(j.rules) ? j.rules : []);
+    } catch (e: any) {
+      console.error('Failed to load rules', e);
+      setRules([]);
+    } finally {
+      setRulesLoading(false);
     }
   }, []);
 
@@ -633,6 +650,7 @@ export default function Dashboard() {
       loadHolidays();
       loadAdminSets(employeeId);
       loadAnnouncements(employeeId); // ✅ add this
+      loadRules();
       fetchNotifications();
     }
   }, [
@@ -645,6 +663,7 @@ export default function Dashboard() {
     loadHolidays,
     loadAdminSets,
     loadAnnouncements,
+    loadRules,
     fetchNotifications,
   ]);
 
@@ -1047,8 +1066,8 @@ export default function Dashboard() {
 
 
   const go = (tab:
-  "dashboard" | "attendance" | "tasks" | "lunch" | "holidays" | "admin"
-) => {
+    "dashboard" | "attendance" | "tasks" | "lunch" | "holidays" | "admin" | "rules"
+  ) => {
   setActiveTab(tab);
   setIsMobileMenuOpen(false);
 };
@@ -1220,6 +1239,9 @@ export default function Dashboard() {
           <button className={`nav-item ${activeTab==="dashboard"?"active":""}`} onClick={() => go("dashboard")}>
   <BarChart3 size={18}/> <span>Dashboard</span>
 </button>
+  <button className={`nav-item ${activeTab==="rules"?"active":""}`} onClick={() => go("rules")}>
+    <ClipboardList size={18}/> <span>Rule Book</span>
+  </button>
 <button className={`nav-item ${activeTab==="attendance"?"active":""}`} onClick={() => go("attendance")}>
   <Clock size={18}/> <span>Attendance</span>
 </button>
@@ -1320,6 +1342,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
+
+                {/* Rule Book card removed from header; moved to its own tab */}
             </div>
             
             <div
@@ -1519,6 +1543,36 @@ export default function Dashboard() {
                 <p>Total Check-outs</p>
               </div>
             </div>
+          </section>
+        )}
+
+        {/* ===== Rules (public) ===== */}
+        {activeTab === "rules" && (
+          <section className="rules-section">
+            <div className="section-header">
+              <h2>Rule Book</h2>
+              <button className="btn icon" title="Refresh rules" onClick={loadRules}>
+                <RefreshCw size={16} />
+              </button>
+            </div>
+
+            {rulesLoading ? (
+              <p className="no-data">Loading rules…</p>
+            ) : rules.length === 0 ? (
+              <p className="no-data">No office rules have been published.</p>
+            ) : (
+              <div className="ann-list">
+                {rules.map((r) => (
+                  <div key={r._id} className="ann-item">
+                    <div className="ann-top">
+                      <span className="ann-subject">{r.title}</span>
+                      <span className="ann-time">{r.order ?? ''}</span>
+                    </div>
+                    <p className="ann-body">{r.body}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 

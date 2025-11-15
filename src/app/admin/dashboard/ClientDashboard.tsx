@@ -795,6 +795,12 @@ const [newTask, setNewTask] = useState<NewTaskForm>({
   const [historyTo, setHistoryTo] = useState<string>('');     // yyyy-mm-dd
   const [messages, setMessages] = useState<BroadcastMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  // Rulebook (admin)
+  const [rules, setRules] = useState<Array<{ _id: string; title: string; body: string; order?: number }>>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
+  const [showRuleForm, setShowRuleForm] = useState(false);
+  const [editingRule, setEditingRule] = useState<{ _id?: string; title?: string; body?: string; order?: number } | null>(null);
+  const [newRule, setNewRule] = useState({ title: '', body: '', order: 0 });
   const [sendingMsg, setSendingMsg] = useState(false);
   const [newMsg, setNewMsg] = useState({ subject: '', body: '', urgent: false });
 
@@ -1741,6 +1747,86 @@ const adminFetch = (url: string, init: RequestInit = {}) => {
   });
 };
 
+/* ======= Rules (Admin) helpers (must be inside component) ======= */
+const fetchRulesAdmin = async () => {
+  try {
+    setRulesLoading(true);
+    const res = await adminFetch('/api/admin/rules');
+    const j = await res.json();
+    if (!res.ok || !j?.success) throw new Error(j?.error || 'Failed to load rules');
+    setRules(Array.isArray(j.rules) ? j.rules : []);
+  } catch (e: any) {
+    show(e?.message || 'Failed to load rules', 'error');
+    setRules([]);
+  } finally {
+    setRulesLoading(false);
+  }
+};
+
+const startEditRule = (r: { _id?: string; title?: string; body?: string; order?: number } | null) => {
+  setEditingRule(r || null);
+  setNewRule({ title: r?.title || '', body: r?.body || '', order: r?.order || 0 });
+  setShowRuleForm(true);
+};
+
+const handleCreateRule = async (e: React.FormEvent) => {
+  e.preventDefault();
+  try {
+    setCreating(true);
+    const res = await adminFetch('/api/admin/rules', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      body: JSON.stringify(newRule),
+    });
+    const j = await res.json();
+    if (!res.ok || !j?.success) throw new Error(j?.error || 'Failed to create rule');
+    setShowRuleForm(false);
+    setNewRule({ title: '', body: '', order: 0 });
+    await fetchRulesAdmin();
+    show('Rule created');
+  } catch (e: any) {
+    show(e?.message || 'Failed to create rule', 'error');
+  } finally { setCreating(false); }
+};
+
+const handleUpdateRule = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!editingRule || !editingRule._id) return;
+  try {
+    setCreating(true);
+    const res = await adminFetch('/api/admin/rules', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...buildAuthHeaders() },
+      body: JSON.stringify({ id: editingRule._id, ...newRule }),
+    });
+    const j = await res.json();
+    if (!res.ok || !j?.success) throw new Error(j?.error || 'Failed to update rule');
+    setEditingRule(null);
+    setShowRuleForm(false);
+    setNewRule({ title: '', body: '', order: 0 });
+    await fetchRulesAdmin();
+    show('Rule updated');
+  } catch (e: any) {
+    show(e?.message || 'Failed to update rule', 'error');
+  } finally { setCreating(false); }
+};
+
+const handleDeleteRule = async (id?: string) => {
+  if (!id) return;
+  if (!confirm('Delete this rule?')) return;
+  try {
+    const res = await adminFetch(`/api/admin/rules?id=${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
+    const j = await res.json();
+    if (!res.ok || !j?.success) throw new Error(j?.error || 'Failed to delete rule');
+    await fetchRulesAdmin();
+    show('Rule deleted');
+  } catch (e: any) {
+    show(e?.message || 'Failed to delete rule', 'error');
+  }
+};
+
   const fetchData = async () => {
     setError(null);
     setLoading(true);
@@ -2535,7 +2621,7 @@ function splitISOToLocalDateTime(iso: string) {
       </header>
 
      <nav className="tabs">
-  {['attendance', 'employees', 'departments', 'roles', 'tasks', 'lunchTime', 'messages', 'notifications', 'settings'].map((tab) => (
+  {['attendance', 'employees', 'departments', 'roles', 'tasks', 'lunchTime', 'messages', 'notifications', 'rules', 'settings'].map((tab) => (
     <button
       key={tab}
       onClick={() => {
@@ -2543,6 +2629,7 @@ function splitISOToLocalDateTime(iso: string) {
         if (tab === 'messages') fetchMessages();
         if (tab === 'settings') fetchAdminSettings();
         if (tab === 'notifications') fetchNotifications();
+        if (tab === 'rules') fetchRulesAdmin();
       }}
       className={`tab ${activeTab === tab ? 'active' : ''}`}
     >
@@ -4145,6 +4232,69 @@ onClick={() => forceCheckoutNow(record.employeeId)}
   </section>
 )}
 
+        {/* Rules (admin) */}
+        {activeTab === 'rules' && (
+          <section className="card">
+            <div className="card-header">
+              <h2>Rule Book</h2>
+              <div className="actions">
+                <button onClick={fetchRulesAdmin} className="btn info" disabled={rulesLoading}>{rulesLoading ? 'Loading…' : 'Refresh'}</button>
+                <button onClick={() => { setShowRuleForm(!showRuleForm); setEditingRule(null); setNewRule({ title: '', body: '', order: 0 }); }} className={`btn ${showRuleForm ? 'secondary' : 'success'}`}>{showRuleForm ? 'Cancel' : 'Add Rule'}</button>
+              </div>
+            </div>
+
+            {showRuleForm && (
+              <div className="subcard">
+                <h3>{editingRule ? 'Edit Rule' : 'Create Rule'}</h3>
+                <form onSubmit={editingRule ? handleUpdateRule : handleCreateRule} className="form grid">
+                  <div className="field">
+                    <label>Title</label>
+                    <input className="input" type="text" value={newRule.title} onChange={(e) => setNewRule({ ...newRule, title: e.target.value })} required disabled={creating} />
+                  </div>
+                  <div className="field">
+                    <label>Body</label>
+                    <textarea className="input textarea" rows={4} value={newRule.body} onChange={(e) => setNewRule({ ...newRule, body: e.target.value })} required disabled={creating} />
+                  </div>
+                  <div className="field">
+                    <label>Order</label>
+                    <input className="input" type="number" value={newRule.order} onChange={(e) => setNewRule({ ...newRule, order: Number(e.target.value || 0) })} disabled={creating} />
+                  </div>
+                  <div className="actions">
+                    <button type="submit" className={`btn ${creating ? 'secondary' : 'primary'}`} disabled={creating}>{creating ? 'Saving…' : (editingRule ? 'Update Rule' : 'Create Rule')}</button>
+                    <button type="button" className="btn secondary" onClick={() => { setShowRuleForm(false); setEditingRule(null); setNewRule({ title: '', body: '', order: 0 }); }} disabled={creating}>Cancel</button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            <h3>Rules ({rules.length})</h3>
+            {rules.length === 0 ? (
+              <p className="empty">No rules defined</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr><th>Order</th><th>Title</th><th>Body</th><th>Actions</th></tr>
+                  </thead>
+                  <tbody>
+                    {rules.map(r => (
+                      <tr key={r._id}>
+                        <td>{r.order ?? 0}</td>
+                        <td>{r.title}</td>
+                        <td style={{ maxWidth: 520, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.body}</td>
+                        <td className="table-actions">
+                          <button className="btn info small" onClick={() => startEditRule(r)}>Edit</button>
+                          <button className="btn danger small" onClick={() => handleDeleteRule(r._id)}>Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
 
       </main>
 {inspectEmployee && (
@@ -4375,3 +4525,4 @@ onClick={() => forceCheckoutNow(record.employeeId)}
     </div>
   );
 }
+
