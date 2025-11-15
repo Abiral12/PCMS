@@ -31,10 +31,28 @@ export async function GET(request: NextRequest) {
     const page  = Math.max(1, parseInt(searchParams.get('page')  || '1', 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '10', 10) || 10));
     const employeeId = searchParams.get('employeeId') || undefined;
+  const from = searchParams.get('from') || undefined; // expect yyyy-mm-dd or ISO
+  const to = searchParams.get('to') || undefined;     // expect yyyy-mm-dd or ISO
 
     const skip = (page - 1) * limit;
     const query: Record<string, unknown> = {};
     if (employeeId) query.employeeId = employeeId;
+    // optional timestamp range filter
+    if (from || to) {
+      const tsQuery: Record<string, unknown> = {};
+      try {
+        if (from) {
+          const f = new Date(from);
+          if (!isNaN(f.getTime())) tsQuery['$gte'] = f;
+        }
+        if (to) {
+          // if date-only (yyyy-mm-dd), make end inclusive for the whole day
+          const t = to.includes('T') ? new Date(to) : new Date(`${to}T23:59:59.999Z`);
+          if (!isNaN(t.getTime())) tsQuery['$lte'] = t;
+        }
+      } catch { /* ignore invalid */ }
+      if (Object.keys(tsQuery).length) query.timestamp = tsQuery;
+    }
 
     const total = await Attendance.countDocuments(query);
 

@@ -783,6 +783,16 @@ const [newTask, setNewTask] = useState<NewTaskForm>({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
+  // Attendance history inspector
+  const [attendanceHistoryOpen, setAttendanceHistoryOpen] = useState(false);
+  const [historyEmployee, setHistoryEmployee] = useState<{ id: string; name: string } | null>(null);
+  const [historyRecords, setHistoryRecords] = useState<AttendanceRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const HISTORY_LIMIT = 50;
+  const [historyFrom, setHistoryFrom] = useState<string>(''); // yyyy-mm-dd
+  const [historyTo, setHistoryTo] = useState<string>('');     // yyyy-mm-dd
   const [messages, setMessages] = useState<BroadcastMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sendingMsg, setSendingMsg] = useState(false);
@@ -1912,6 +1922,46 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
   const handleLogout = () => router.push('/admin');
   const viewImage = (record: AttendanceRecord) => { setSelectedRecord(record); setShowImageModal(true); };
 
+  // Open paginated attendance history for an employee
+  const openAttendanceHistory = async (employeeId: string, employeeName?: string) => {
+    setHistoryEmployee({ id: employeeId, name: employeeName || 'Employee' });
+    setAttendanceHistoryOpen(true);
+    setHistoryPage(1);
+    setHistoryFrom('');
+    setHistoryTo('');
+    await loadAttendanceHistory(employeeId, 1, '','');
+  };
+
+  const closeAttendanceHistory = () => {
+    setAttendanceHistoryOpen(false);
+    setHistoryEmployee(null);
+    setHistoryRecords([]);
+    setHistoryPage(1);
+    setHistoryTotalPages(1);
+  };
+
+  async function loadAttendanceHistory(employeeId: string, page = 1, from?: string, to?: string) {
+    try {
+      setHistoryLoading(true);
+      const params: Record<string,string> = { employeeId, page: String(page), limit: String(HISTORY_LIMIT) };
+      if (from) params.from = from;
+      if (to) params.to = to;
+      const qs = new URLSearchParams(params);
+      const res = await adminFetch(`/api/admin/attendance?${qs.toString()}`);
+      const j = await res.json();
+      if (!res.ok || !j?.success) throw new Error(j?.error || `Failed to load history (${res.status})`);
+      setHistoryRecords(Array.isArray(j.attendance) ? j.attendance : []);
+      setHistoryPage(j.currentPage || page);
+      setHistoryTotalPages(j.totalPages || 1);
+    } catch (e: any) {
+      show(e?.message || 'Failed to load attendance history', 'error');
+      setHistoryRecords([]);
+      setHistoryTotalPages(1);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   /* ======= EXPORT CSV (Range) ======= */
   function computeRange(kind: RangeKind, s?: string, e?: string) {
     const today = new Date();
@@ -2562,7 +2612,11 @@ function splitISOToLocalDateTime(iso: string) {
                     <tbody>
                       {viewAttendance.map((record) => (
                         <tr key={record._id}>
-                          <td>{record.employeeName}</td>
+                          <td>
+                            <button className="btn link" onClick={() => openAttendanceHistory(record.employeeId, record.employeeName)}>
+                              {record.employeeName}
+                            </button>
+                          </td>
                           <td>{record.employeeId}</td>
                           <td>
                             <span className={`badge ${record.type === 'checkin' ? 'badge-green' : 'badge-red'}`}>
@@ -2611,7 +2665,11 @@ onClick={() => forceCheckoutNow(record.employeeId)}
                     <tbody>
                       {pairedRows.map((row) => (
                         <tr key={row.key}>
-                          <td>{row.employeeName}</td>
+                          <td>
+                            <button className="btn link" onClick={() => openAttendanceHistory(row.employeeId, row.employeeName)}>
+                              {row.employeeName}
+                            </button>
+                          </td>
                           <td>{row.employeeId}</td>
                           <td>{new Date(row.date).toLocaleDateString()}</td>
                           <td>{row.firstCheckIn ? new Date(row.firstCheckIn.timestamp).toLocaleTimeString() : '—'}</td>
@@ -3010,6 +3068,7 @@ onClick={() => forceCheckoutNow(record.employeeId)}
 </td>
       <td className="table-actions">
         <button onClick={() => startEditEmployee(e)} className="btn info small">Edit</button>
+        <button onClick={() => openAttendanceHistory(e._id, e.name)} className="btn primary small">View Attendance</button>
         <button onClick={() => handleTogglePauseEmployee(e)} className="btn secondary small">
           {e.isPaused ? 'Resume' : 'Pause'}
         </button>
@@ -4171,7 +4230,70 @@ onClick={() => forceCheckoutNow(record.employeeId)}
 )}
 
       {/* Attendance Image Modal */}
-      {showImageModal && selectedRecord && (
+        {/* Attendance history modal */}
+        {attendanceHistoryOpen && historyEmployee && (
+          <div className="modal-backdrop">
+            <div className="modal" style={{ maxWidth: 900 }}>
+              <div className="card-header" style={{ alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>Attendance — {historyEmployee.name}</h3>
+                  <small className="muted">Showing {historyRecords.length} record(s). Page {historyPage} / {historyTotalPages}</small>
+                </div>
+                <div className="actions" style={{ gap: 8, marginLeft: 'auto', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span className="muted">From</span>
+                    <input className="input" type="date" value={historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} />
+                  </label>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span className="muted">To</span>
+                    <input className="input" type="date" value={historyTo} onChange={(e) => setHistoryTo(e.target.value)} />
+                  </label>
+                  <button className="btn secondary" onClick={async () => {
+                    setHistoryPage(1);
+                    await loadAttendanceHistory(historyEmployee.id, 1, historyFrom || undefined, historyTo || undefined);
+                  }} disabled={historyLoading}>Apply</button>
+                  <button className="btn secondary" onClick={async () => {
+                    setHistoryFrom(''); setHistoryTo(''); setHistoryPage(1);
+                    await loadAttendanceHistory(historyEmployee.id, 1, '', '');
+                  }} disabled={historyLoading}>Clear</button>
+                  <button className="btn" onClick={closeAttendanceHistory}>Close</button>
+                </div>
+              </div>
+
+              {historyLoading ? (
+                <p className="muted">Loading…</p>
+              ) : historyRecords.length === 0 ? (
+                <p className="empty">No attendance records found for this employee.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr><th>Type</th><th>Date & Time</th><th>Image</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                      {historyRecords.map(r => (
+                        <tr key={r._id}>
+                          <td>
+                            <span className={`badge ${r.type === 'checkin' ? 'badge-green' : 'badge-red'}`}>
+                              {r.type.toUpperCase()}
+                            </span>
+                          </td>
+                          <td>{new Date(r.timestamp).toLocaleString()}</td>
+                          <td>{r.imageData ? <span className="muted">Yes</span> : <span className="muted">No</span>}</td>
+                          <td>
+                            {r.imageData && <button className="btn small" onClick={() => viewImage(r)}>View Image</button>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {showImageModal && selectedRecord && (
         <div className="modal-backdrop">
           <div className="modal modal-image">
             <h3>{selectedRecord.employeeName} - {selectedRecord.type.toUpperCase()}</h3>
