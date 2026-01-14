@@ -257,7 +257,11 @@ export async function GET(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (from > to) {
+  // Safe to assert now because isYMD guards null/format issues
+  const fromYMD = from as string;
+  const toYMD = to as string;
+
+  if (fromYMD > toYMD) {
     return NextResponse.json(
       { error: "Invalid date range: from must be <= to" },
       { status: 400 }
@@ -270,11 +274,11 @@ export async function GET(req: NextRequest) {
     .select("_id name email department role position")
     .lean();
 
-  const days = listDays(from, to);
+  const days = listDays(fromYMD, toYMD);
 
   // Attendance date range
-  const startDate = new Date(from + "T00:00:00.000Z");
-  const endDate = new Date(to + "T23:59:59.999Z");
+  const startDate = new Date(fromYMD + "T00:00:00.000Z");
+  const endDate = new Date(toYMD + "T23:59:59.999Z");
 
   // Salary Profiles
   const empObjectIds = (employees as any[]).map((e) => e._id);
@@ -296,7 +300,7 @@ export async function GET(req: NextRequest) {
 
   // Pull workbooks (WorkbookDay.date is YMD string)
   const allWorkbooks = await WorkbookDay.find({
-    date: { $gte: from, $lte: to },
+    date: { $gte: fromYMD, $lte: toYMD },
   })
     .select("employeeId date hourlyLogs logs items notes")
     .lean();
@@ -323,7 +327,7 @@ export async function GET(req: NextRequest) {
 
   // Load salary adjustments / deductions / advances / paid within period
   const employeeIds = (employees as any[]).map((e) => String(e._id));
-  const adjMap = await loadAdjustments({ from, to, startDate, endDate, employeeIds });
+  const adjMap = await loadAdjustments({ from: fromYMD, to: toYMD, startDate, endDate, employeeIds });
 
   // Aggregate totals per employee
   const adjTotals = new Map<
@@ -397,7 +401,7 @@ export async function GET(req: NextRequest) {
     const overtimeRate = num(sp?.overtimeRate);
     const standardHoursPerDay = Math.max(1, num(sp?.standardHoursPerDay) || 8);
     const allowances = num(sp?.allowances);
-    const profileDeductions = sumProfileDeductions(sp, from, to);
+    const profileDeductions = sumProfileDeductions(sp, fromYMD, toYMD);
 
 
     if (payType === "monthly" && baseMonthly > 0) {
@@ -429,7 +433,7 @@ export async function GET(req: NextRequest) {
     ws.getCell("A1").value = "Employee";
     ws.getCell("B1").value = empName;
     ws.getCell("A2").value = "Period";
-    ws.getCell("B2").value = `${from} → ${to}`;
+    ws.getCell("B2").value = `${fromYMD} → ${toYMD}`;
     ws.getCell("D1").value = "Department";
     ws.getCell("E1").value = dept;
     ws.getCell("D2").value = "Position";
@@ -619,7 +623,7 @@ export async function GET(req: NextRequest) {
   }
 
   const buf = await wb.xlsx.writeBuffer();
-  const filename = `payroll_${from}_to_${to}.xlsx`;
+  const filename = `payroll_${fromYMD}_to_${toYMD}.xlsx`;
 
   return new NextResponse(Buffer.from(buf), {
     status: 200,
