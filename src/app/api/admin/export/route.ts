@@ -229,7 +229,7 @@ export async function GET(req: NextRequest) {
     // Map employeeId -> dayKey -> agg
     const dayAggByEmp = new Map<string, Map<string, DayAgg>>();
 
-    function getDayAgg(empId: string, day: string): DayAgg {
+    const getDayAgg = (empId: string, day: string): DayAgg => {
       let m = dayAggByEmp.get(empId);
       if (!m) {
         m = new Map();
@@ -249,7 +249,7 @@ export async function GET(req: NextRequest) {
         m.set(day, agg);
       }
       return agg;
-    }
+    };
 
     for (const a of attendance as any[]) {
       const empId = String(pick(a, ["employeeId", "employee_id", "employee"]) ?? "");
