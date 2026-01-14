@@ -32,7 +32,7 @@ async function ensureSubmitted(employeeId: string, tz: string) {
 
   const day = await WorkbookDay.findOne({ employeeId, date })
     .select("isSubmitted submittedAt")
-    .lean();
+    .lean<{ isSubmitted?: boolean }>();
 
   if (!day || !day.isSubmitted) {
     return { ok: false as const, date };
