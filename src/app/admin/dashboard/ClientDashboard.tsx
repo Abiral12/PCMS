@@ -1044,7 +1044,8 @@ function getOrInitProfile(employeeId: string): SalaryProfile {
     overtimeRate: 0,
     standardHoursPerDay: 8,
     allowances: 0,
-    deductions: 0,
+    effectiveFrom: new Date().toISOString().split('T')[0],
+    deductions: [],
     notes: "",
   };
 }
