@@ -289,7 +289,7 @@ let empName = master?.name || attendanceRows[i].employeeName || "";
           date,
           firstIn: d.firstIn,
           lastOut: d.lastOut,
-          status: isValid ? "valid" : "invalid",
+          status: isValid ? ("valid" as DayStatus) : ("invalid" as DayStatus),
           includedInTotals,
           reasons,
           grossMs,
