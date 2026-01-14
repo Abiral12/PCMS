@@ -6,6 +6,9 @@ import { useRouter } from 'next/navigation';
 import Calendar from 'react-calendar';
 import 'react-calendar/dist/Calendar.css';
 import './dashboard.css';
+import Employee from '@/models/Employee';
+import AdminHourlyLogsRangeBubble from '@/components/AdminHourlyLogsRangeBubble';
+import { ChevronDown, RefreshCw, Users } from 'lucide-react';
 
 /* ===================== Auth headers helper ===================== */
 function buildAuthHeaders(): Record<string, string> {
@@ -190,6 +193,42 @@ interface BroadcastMessage {
   recipientCount?: number;     // optional
 }
 
+type TodoLog = {
+  _id: string;
+  employeeId: string;
+  employeeName?: string;
+  date?: string;          // optional if you store it
+  title: string;
+  status: 'pending'|'done'|'cancelled'|'in-progress';
+  updatedAt?: string;
+  createdAt?: string;
+};
+
+type PayrollProfileDTO = {
+  _id?: string;
+  employeeId: string;
+  baseSalary: number;
+  cycleDays: number;
+  effectiveFrom: string; // ISO string or "YYYY-MM-DD"
+  excludeWeekdays?: number[];
+  perDayRounding?: "none" | "floor" | "round" | "ceil";
+  lastPaidThrough?: string | null;
+};
+
+
+
+
+type HourlyLog = {
+  _id: string;
+  employeeId: string;
+  employeeName?: string;
+  date?: string;          // optional if you store it
+  hour?: number;          // 0-23 or 1-12 (depends on your schema)
+  text: string;
+  timestamp: string;      // ISO
+};
+
+
 /* ===================== Toasts ===================== */
 type Toast = { id: number; message: string; type?: 'success' | 'error' };
 function useToasts() {
@@ -262,6 +301,82 @@ function csvEscape(val: any): string {
   }
   return s;
 }
+
+type PayType = "monthly" | "hourly";
+
+type DeductionEntry = {
+  _id?: string;
+  date: string;      // ISO string (or yyyy-mm-dd)
+  reason: string;
+  amount: number;
+  createdAt?: string; // ISO
+};
+
+type SalaryProfile = {
+  employeeId: string;
+
+  payType: "monthly" | "hourly";
+
+  // monthly salary
+  baseMonthly: number;
+
+  // hourly + overtime
+  hourlyRate: number;
+  overtimeRate: number;
+  standardHoursPerDay: number;
+
+  // optional
+  allowances: number;
+
+  // activation date
+  effectiveFrom: string; // ISO or yyyy-mm-dd
+
+  // deduction ledger
+  deductions: DeductionEntry[];
+
+  notes?: string;
+  updatedAt?: string;
+};
+
+
+type PayrollLine = {
+  employeeId: string;
+  employeeName: string;
+
+  payType: PayType;
+
+  validDays: number;
+  netHours: number; // derived from attendance summary
+
+  basePay: number;
+  overtimePay: number;
+
+  allowances: number;
+  deductions: number;
+
+  gross: number;
+  net: number;
+};
+
+type DeductionDraft = { date: string; reason: string; amount: number };
+
+type PayrollPreview = {
+  range: { from: string; to: string; tz: string };
+  lines: PayrollLine[];
+  totals: { gross: number; net: number; employees: number };
+};
+function sumDeductionsInRange(profile: SalaryProfile, from: string, to: string) {
+  const start = new Date(`${from}T00:00:00.000Z`).getTime();
+  const end = new Date(`${to}T23:59:59.999Z`).getTime();
+  const list = Array.isArray(profile?.deductions) ? profile.deductions : [];
+  return list.reduce((acc, d) => {
+    const t = new Date(d.date).getTime();
+    if (Number.isNaN(t)) return acc;
+    if (t >= start && t <= end) return acc + (Number(d.amount) || 0);
+    return acc;
+  }, 0);
+}
+
 // ---- image helpers (client-safe) ----
 function toDisplayableImageClient(anyImg?: any): string | undefined {
   if (!anyImg) return undefined;
@@ -315,6 +430,45 @@ const fmtTime = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleTimeString() : '—';
 
 const plural = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'}`;
+
+function pickPosition(e: any): string | null {
+  return (
+    e?.position ??
+    e?.designation ??
+    e?.jobTitle ??
+    e?.title ??
+    e?.role ??
+    null
+  );
+}
+
+// returns: "Pukar Wanem Limbu (Multimedia Designer)"
+function employeeLabel(
+  lt: { employeeId?: any; employeeName?: string | null },
+  employees: any[]
+) {
+  // If employeeName already includes "(...)" keep it
+  const rawName = (lt?.employeeName ?? "").trim();
+  if (rawName && rawName.includes("(") && rawName.includes(")")) return rawName;
+
+  const id = asId(lt?.employeeId);
+
+  // prefer populated employee object if present
+  const populated = typeof lt?.employeeId === "object" ? lt.employeeId : null;
+
+  const emp =
+    populated ??
+    employees.find((x) => String(x?._id) === String(id)) ??
+    null;
+
+  const name =
+    (emp?.name ?? rawName ?? "").trim() ||
+    "Unknown";
+
+  const pos = pickPosition(emp);
+
+  return pos ? `${name} (${pos})` : name;
+}
 
 
 /* ===================== Holidays Modal ===================== */
@@ -480,6 +634,15 @@ function HolidaysModal({
       setReportLoading(false);
     }
   };
+
+  function fmtTimeISO(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function fmtRangeISO(start: string, end: string) {
+  return `${fmtTimeISO(start)} – ${fmtTimeISO(end)}`;
+}
+
 
   const handleDateClick = (date: Date) => {
     const normalized = dayKeyUTC(date);
@@ -723,6 +886,108 @@ function HolidaysModal({
   );
 }
 
+function msToHMS(ms: number) {
+  const safe = Math.max(0, ms || 0);
+  const totalSec = Math.floor(safe / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function diffMs(aISO?: string, bISO?: string) {
+  if (!aISO || !bISO) return 0;
+  const a = new Date(aISO).getTime();
+  const b = new Date(bISO).getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return 0;
+  return Math.max(0, b - a);
+}
+
+function lunchMsForDate(ov: LunchOverview | null | undefined, yyyy_mm_dd: string) {
+  if (!ov?.byDay?.length) return 0;
+  const day = ov.byDay.find((d) => d.date === yyyy_mm_dd);
+  return day?.totalMs || 0;
+}
+type DayStatus = "valid" | "invalid";
+type InvalidReason = "missing_checkin" | "missing_checkout" | "checkout_before_checkin";
+
+type WorkHoursSummary = {
+  success: true;
+  range: { from: string; to: string; tz: string; closeOpenAt?: string };
+  employees: Array<{
+    employeeId: string;
+    employeeName: string;
+    totals: {
+      validDays: number;
+      invalidDays: number;
+
+      grossMs: number;
+      lunchMs: number;
+      netMs: number;
+
+      grossHMS: string;
+      lunchHMS: string;
+      netHMS: string;
+
+      avgNetPerValidDayHMS: string;
+    };
+    byDay: Array<{
+      date: string;
+      firstIn: string | null;
+      lastOut: string | null;
+
+      status: DayStatus;
+      includedInTotals: boolean;
+      reasons: InvalidReason[];
+
+      grossMs: number;
+      lunchMs: number;
+      netMs: number;
+    }>;
+  }>;
+  totalsAll?: {
+    validDays: number;
+    invalidDays: number;
+    grossMs: number;
+    lunchMs: number;
+    netMs: number;
+    grossHMS: string;
+    lunchHMS: string;
+    netHMS: string;
+    avgNetPerValidDayHMS: string;
+  };
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* ===================== Main Dashboard ===================== */
 export default function AdminDashboard() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -732,6 +997,395 @@ export default function AdminDashboard() {
   const [filteredAttendance, setFilteredAttendance] = useState<AttendanceRecord[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [lunchTimes, setLunchTimes] = useState<LunchTime[]>([]);
+const [wlExportOpen, setWlExportOpen] = useState(false);
+const [wlExportKind, setWlExportKind] = useState<"day" | "range">("day");
+
+const [wlExportDate, setWlExportDate] = useState<string>("");
+const [wlExportFrom, setWlExportFrom] = useState<string>("");
+const [wlExportTo, setWlExportTo] = useState<string>("");
+
+const [wlExportEmployeeId, setWlExportEmployeeId] = useState<string>("");
+const [wlExporting, setWlExporting] = useState(false);
+// ===== Salary / Payroll UI state =====
+const [salaryProfiles, setSalaryProfiles] = useState<Record<string, SalaryProfile>>({});
+const [salaryLoading, setSalaryLoading] = useState(false);
+const [salaryError, setSalaryError] = useState<string | null>(null);
+
+const [salaryEmployeeFilter, setSalaryEmployeeFilter] = useState<string>(""); // '' = all
+const [salarySelectedEmployeeId, setSalarySelectedEmployeeId] = useState<string>("");
+
+const [payrollKind, setPayrollKind] = useState<"monthly" | "custom">("monthly");
+const [payrollFrom, setPayrollFrom] = useState<string>("");
+const [payrollTo, setPayrollTo] = useState<string>("");
+const [minHours, setMinHours] = useState<number>(6);
+const [payrollPreview, setPayrollPreview] = useState<PayrollPreview | null>(null);
+const [payrollPreviewLoading, setPayrollPreviewLoading] = useState(false);
+const [payrollPreviewError, setPayrollPreviewError] = useState<string | null>(null);
+function npr(n: number) {
+  const v = Number.isFinite(n) ? n : 0;
+  return v.toLocaleString("en-NP", { maximumFractionDigits: 0 });
+}
+
+function safeNum(v: any) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getOrInitProfile(employeeId: string): SalaryProfile {
+  const existing = salaryProfiles[employeeId];
+  if (existing) return existing;
+
+  // default new profile
+  return {
+    employeeId,
+    payType: "monthly",
+    baseMonthly: 0,
+    hourlyRate: 0,
+    overtimeRate: 0,
+    standardHoursPerDay: 8,
+    allowances: 0,
+    deductions: 0,
+    notes: "",
+  };
+}
+
+function ymdUTC(d: Date) {
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function computePayrollRange(): { from: string; to: string } {
+  if (payrollKind === "custom") {
+    return { from: payrollFrom, to: payrollTo }; // these should already be yyyy-mm-dd from <input type="date">
+  }
+
+  // monthly
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+  return { from: ymdUTC(start), to: ymdUTC(end) };
+}
+function computeThisWeekRangeUTC() {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0 Sun - 6 Sat
+  const diffToMon = (day + 6) % 7; // Monday=0
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diffToMon));
+  const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + 6));
+  return { from: ymdUTC(start), to: ymdUTC(end) };
+}
+
+
+async function safeJson(res: Response) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { success: false, error: text || "Invalid JSON response" };
+  }
+}
+function updateSalaryProfile(employeeId: string, patch: Partial<SalaryProfile>) {
+  setSalaryProfiles((prev) => {
+    const base = getOrInitProfile(employeeId);
+    const next = { ...base, ...(prev[employeeId] || {}), ...patch, employeeId };
+    return { ...prev, [employeeId]: next };
+  });
+}
+
+function toUtcStartMs(ymd: string) {
+  return new Date(`${ymd}T00:00:00.000Z`).getTime();
+}
+function toUtcEndMs(ymd: string) {
+  return new Date(`${ymd}T23:59:59.999Z`).getTime();
+}
+
+function sumDeductionsInRange(profile: any, from: string, to: string) {
+  const start = toUtcStartMs(from);
+  const end = toUtcEndMs(to);
+
+  const list = Array.isArray(profile?.deductions) ? profile.deductions : [];
+  return list.reduce((acc: number, d: any) => {
+    const t = new Date(d?.date).getTime();
+    const amt = Number(d?.amount) || 0;
+    if (!Number.isFinite(t) || amt <= 0) return acc;
+    if (t >= start && t <= end) return acc + amt;
+    return acc;
+  }, 0);
+}
+
+function isSalaryActiveInRange(profile: any, from: string, to: string) {
+  // Salary is active if effectiveFrom <= rangeEnd
+  const eff = profile?.effectiveFrom ? new Date(profile.effectiveFrom).getTime() : NaN;
+  if (!Number.isFinite(eff)) return true; // backward compatible (old data)
+  const rangeEnd = toUtcEndMs(to);
+  return eff <= rangeEnd;
+}
+
+
+async function saveSalaryProfileToServer(employeeId: string) {
+  const p = getOrInitProfile(employeeId);
+
+  try {
+    setSalaryLoading(true);
+    setSalaryError(null);
+
+    const res = await adminFetch("/api/admin/salaries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p),
+    });
+
+    const j = await res.json().catch(() => null);
+    if (!res.ok || !j?.success) throw new Error(j?.error || "Failed to save salary profile");
+
+    const saved: SalaryProfile = j.profile;
+    setSalaryProfiles((prev) => ({ ...prev, [saved.employeeId]: saved }));
+
+    show("Salary profile saved");
+  } catch (e: any) {
+    setSalaryError(e?.message || "Failed to save");
+    show(e?.message || "Failed to save", "error");
+  } finally {
+    setSalaryLoading(false);
+  }
+}
+
+const saveSalaryProfile = async (p: PayrollProfileDTO) => {
+  if (!p?.employeeId) {
+    alert("Select an employee first.");
+    return;
+  }
+  if (!Number.isFinite(p.baseSalary) || p.baseSalary <= 0) {
+    alert("Base salary must be a positive number.");
+    return;
+  }
+  if (!Number.isFinite(p.cycleDays) || p.cycleDays <= 0) {
+    alert("Cycle days must be a positive number.");
+    return;
+  }
+  if (!p.effectiveFrom) {
+    alert("Effective From is required.");
+    return;
+  }
+
+  const res = await fetch("/api/admin/payroll/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(p),
+  });
+
+  const data = await safeJson(res);
+  if (!res.ok || !data?.success) {
+    alert(data?.error || "Failed to save payroll profile.");
+    return;
+  }
+
+  const saved: PayrollProfileDTO = data.profile;
+
+  // keep your local cache in sync (salaryProfiles is your map by employeeId)
+  setSalaryProfiles((prev: any) => ({
+    ...prev,
+    [saved.employeeId]: saved,
+  }));
+
+  alert("Saved payroll profile.");
+};
+
+async function loadSalaryProfiles() {
+  try {
+    setSalaryLoading(true);
+    setSalaryError(null);
+
+    // If you don't have backend yet, this will fail and we will just keep in-memory state.
+    const res = await adminFetch("/api/admin/salaries", { method: "GET" });
+    const j = await res.json().catch(() => null);
+
+    if (!res.ok || !j?.success) {
+      // If API isn't built yet, don't hard-fail the UI
+      console.warn("Salary profiles API not ready:", j?.error || res.status);
+      return;
+    }
+
+    // Expecting: { success:true, profiles:[SalaryProfile] }
+    const map: Record<string, SalaryProfile> = {};
+    (j.profiles || []).forEach((p: SalaryProfile) => {
+      if (p?.employeeId) map[p.employeeId] = p;
+    });
+    setSalaryProfiles(map);
+  } catch (e: any) {
+    // Soft error; UI can still work in-memory
+    console.warn("loadSalaryProfiles error:", e?.message);
+    setSalaryError(e?.message || "Failed to load salary profiles");
+  } finally {
+    setSalaryLoading(false);
+  }
+}
+
+
+async function generatePayrollPreview() {
+  try {
+    setPayrollPreviewLoading(true);
+    setPayrollPreviewError(null);
+
+    const { from, to } = computePayrollRange();
+    const summary: WorkHoursSummary = await fetchWorkHours(from, to);
+
+    const daysInRange = (() => {
+      const s = new Date(`${from}T00:00:00.000Z`);
+      const e = new Date(`${to}T00:00:00.000Z`);
+      const diff = Math.floor((e.getTime() - s.getTime()) / (24 * 3600 * 1000));
+      return diff + 1;
+    })();
+
+    const lines: PayrollLine[] = [];
+
+    for (const row of summary.employees || []) {
+      const empId = row.employeeId;
+      const empName = row.employeeName || employees.find((x) => x._id === empId)?.name || "Unknown";
+
+      // hours
+      const netMs = row.totals?.netMs || 0;
+      const netHours = Math.round((netMs / 3600000) * 100) / 100;
+
+      const validDays = row.totals?.validDays || 0;
+
+      const profile = getOrInitProfile(empId);
+const salaryActive = isSalaryActiveInRange(profile, from, to);
+
+      const payType = profile.payType || "monthly";
+      const allowances = safeNum(profile.allowances);
+     const deductions = sumDeductionsInRange(profile, from, to);
+      const standardHoursPerDay = safeNum(profile.standardHoursPerDay) || 8;
+
+      let basePay = 0;
+      let overtimePay = 0;
+
+      if (payType === "monthly") {
+        const baseMonthly = safeNum(profile.baseMonthly);
+if (!salaryActive) {
+  basePay = 0;
+  overtimePay = 0;
+} else {
+  const factor = daysInRange > 0 ? Math.min(1, validDays / daysInRange) : 0;
+  basePay = Math.round(baseMonthly * factor);
+
+  const standardHours = validDays * standardHoursPerDay;
+  const overtimeHours = Math.max(0, netHours - standardHours);
+  const otRate = safeNum(profile.overtimeRate) || 0;
+  overtimePay = otRate > 0 ? Math.round(overtimeHours * otRate) : 0;
+}
+
+
+        // Optional overtime on top (rare in monthly, but you may want it)
+        const standardHours = validDays * standardHoursPerDay;
+        const overtimeHours = Math.max(0, netHours - standardHours);
+        const otRate = safeNum(profile.overtimeRate) || 0;
+        overtimePay = otRate > 0 ? Math.round(overtimeHours * otRate) : 0;
+      } else {
+if (!salaryActive) {
+  basePay = 0;
+  overtimePay = 0;
+} else {
+  const rate = safeNum(profile.hourlyRate);
+  basePay = Math.round(netHours * rate);
+
+  const standardHours = validDays * standardHoursPerDay;
+  const overtimeHours = Math.max(0, netHours - standardHours);
+  const otRate = safeNum(profile.overtimeRate) || rate;
+  overtimePay = Math.round(overtimeHours * otRate);
+}
+
+      }
+
+const gross = basePay + overtimePay + allowances;
+const net = Math.max(0, gross - deductions);
+
+
+      lines.push({
+        employeeId: empId,
+        employeeName: empName,
+        payType,
+        validDays,
+        netHours,
+        basePay,
+        overtimePay,
+        allowances,
+        deductions,
+        gross,
+        net,
+      });
+    }
+
+    // Filters
+    const filteredLines = salaryEmployeeFilter
+      ? lines.filter((x) => x.employeeId === salaryEmployeeFilter)
+      : lines;
+
+    const totals = filteredLines.reduce(
+      (acc, x) => {
+        acc.gross += x.gross;
+        acc.net += x.net;
+        acc.employees += 1;
+        return acc;
+      },
+      { gross: 0, net: 0, employees: 0 }
+    );
+
+    setPayrollPreview({
+      range: { from, to, tz: "Asia/Kathmandu" },
+      lines: filteredLines.sort((a, b) => a.employeeName.localeCompare(b.employeeName)),
+      totals,
+    });
+  } catch (e: any) {
+    setPayrollPreview(null);
+    setPayrollPreviewError(e?.message || "Failed to generate payroll");
+  } finally {
+    setPayrollPreviewLoading(false);
+  }
+}
+
+function openWorklogsExport() {
+  // default values from current filters (but won’t change the page)
+  setWlExportKind("day");
+  setWlExportDate(worklogDate);
+  setWlExportFrom(worklogDate);
+  setWlExportTo(worklogDate);
+  setWlExportEmployeeId(worklogEmployeeId);
+  setWlExportOpen(true);
+}
+
+function closeWorklogsExport() {
+  setWlExportOpen(false);
+}
+
+async function runWorklogsExport() {
+  try {
+    setWlExporting(true);
+
+    if (wlExportKind === "day") {
+      await downloadWorklogsExcel({
+        kind: "day",
+        date: wlExportDate,
+        employeeId: wlExportEmployeeId,
+      });
+    } else {
+      await downloadWorklogsExcel({
+        kind: "range",
+        from: wlExportFrom,
+        to: wlExportTo,
+        employeeId: wlExportEmployeeId,
+      });
+    }
+
+    show("Excel exported");
+    closeWorklogsExport();
+  } catch (e: any) {
+    show(e?.message || "Export failed", "error");
+  } finally {
+    setWlExporting(false);
+  }
+}
 
   const [activeTab, setActiveTab] = useState('attendance');
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
@@ -744,6 +1398,102 @@ export default function AdminDashboard() {
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [editingLunchTime, setEditingLunchTime] = useState<LunchTime | null>(null);
+
+const [hoursKind, setHoursKind] = useState<"weekly" | "monthly" | "custom">("weekly");
+const [hoursFrom, setHoursFrom] = useState<string>("");
+const [hoursTo, setHoursTo] = useState<string>("");
+const [hoursEmployeeId, setHoursEmployeeId] = useState<string>(""); // '' = all
+const [hoursSummary, setHoursSummary] = useState<WorkHoursSummary | null>(null);
+const [hoursLoading, setHoursLoading] = useState(false);
+const [hoursError, setHoursError] = useState<string | null>(null);
+
+// simple range compute using your existing helpers
+function ymd(d: Date) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function computeHoursRange() {
+  if (hoursKind === "custom") {
+    return { from: hoursFrom, to: hoursTo };
+  }
+
+  const now = new Date();
+
+  if (hoursKind === "monthly") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { from: ymd(start), to: ymd(end) };
+  }
+
+  // weekly (Mon → Sun)
+  const day = now.getDay(); // 0 Sun .. 6 Sat
+  const diffToMon = (day + 6) % 7;
+  const start = new Date(now);
+  start.setDate(now.getDate() - diffToMon);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return { from: ymd(start), to: ymd(end) };
+}
+
+
+async function loadWorkHoursSummary() {
+  try {
+    setHoursLoading(true);
+    setHoursError(null);
+
+    const { from, to } = computeHoursRange();
+    const qs = new URLSearchParams({
+      from,
+      to,
+      tz: "Asia/Kathmandu",
+      closeOpenAt: "now",
+    });
+    if (hoursEmployeeId) qs.set("employeeId", hoursEmployeeId);
+
+    const res = await adminFetch(`/api/admin/attendance/summary?${qs.toString()}`);
+    const j = await res.json();
+    if (!res.ok || !j?.success) throw new Error(j?.error || "Failed to load summary");
+    setHoursSummary(j);
+  } catch (e: any) {
+    setHoursSummary(null);
+    setHoursError(e?.message || "Failed to load summary");
+  } finally {
+    setHoursLoading(false);
+  }
+}
+
+
+async function downloadWorkhoursExcel(params: {
+  from: string;
+  to: string;
+  employeeId?: string;
+  tz?: string;
+  closeOpenAt?: "now" | "endOfDay";
+}) {
+  const qs = new URLSearchParams();
+  qs.set("from", params.from);
+  qs.set("to", params.to);
+  if (params.employeeId) qs.set("employeeId", params.employeeId);
+  if (params.tz) qs.set("tz", params.tz);
+  if (params.closeOpenAt) qs.set("closeOpenAt", params.closeOpenAt);
+
+  const res = await fetch(`/api/admin/attendance/export?${qs.toString()}`);
+  if (!res.ok) {
+    const j = await res.json().catch(() => null);
+    throw new Error(j?.error || `Export failed (${res.status})`);
+  }
+
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `workhours_${params.from}_to_${params.to}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
   const [newEmployee, setNewEmployee] = useState({
     name: '', email: '', password: '',
@@ -875,6 +1625,119 @@ const [schedulesError, setSchedulesError] = useState<string | null>(null);
 
 const [loadingSchedules, setLoadingSchedules] = useState(false);
 
+const [worklogQuery, setWorklogQuery] = useState("");
+const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+const [worklogDate, setWorklogDate] = useState<string>(
+  new Date().toISOString().split('T')[0]
+);
+const [worklogEmployeeId, setWorklogEmployeeId] = useState<string>(''); // '' = all
+const [worklogItems, setWorklogItems] = useState<Array<{
+  employeeId: string;
+  employeeName: string;
+  todos: TodoLog[];
+  hourlyLogs: HourlyLog[];
+}>>([]);
+const [worklogLoading, setWorklogLoading] = useState(false);
+const [worklogError, setWorklogError] = useState<string | null>(null);
+function toggleExpanded(employeeId: string) {
+  setExpandedRows((prev) => ({ ...prev, [employeeId]: !prev[employeeId] }));
+}
+
+async function fetchWorkHours(from: string, to: string) {
+  const qs = new URLSearchParams({
+    from,
+    to,
+    tz: "Asia/Kathmandu",
+    closeOpenAt: "now",
+  });
+  const res = await adminFetch(`/api/admin/attendance/summary?${qs.toString()}`);
+  const j = await res.json();
+  if (!res.ok || !j?.success) throw new Error(j?.error || "Failed to load work hours");
+  return j;
+}
+
+const [lunchCache, setLunchCache] = useState<Record<string, LunchOverview | null>>({});
+const [lunchCacheLoading, setLunchCacheLoading] = useState<Record<string, boolean>>({});
+
+async function fetchLunchOverviewFor(empId: string, from: string, to: string): Promise<LunchOverview | null> {
+  const qs = new URLSearchParams({ employeeId: empId, from, to }).toString();
+  const res = await fetch(`/api/lunch/overview?${qs}`, { headers: { ...buildAuthHeaders() } });
+  const data = await res.json();
+  if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to load lunch overview');
+  return data as LunchOverview;
+}
+
+async function ensureLunchLoaded(empId: string, yyyy_mm_dd: string) {
+  const key = `${empId}__${yyyy_mm_dd}`;
+  if (key in lunchCache) return; // already loaded (including null)
+  try {
+    setLunchCacheLoading((p) => ({ ...p, [key]: true }));
+    const ov = await fetchLunchOverviewFor(empId, yyyy_mm_dd, yyyy_mm_dd);
+    setLunchCache((p) => ({ ...p, [key]: ov }));
+  } catch (e: any) {
+    show(e?.message || 'Failed to load lunch', 'error');
+    setLunchCache((p) => ({ ...p, [key]: null }));
+  } finally {
+    setLunchCacheLoading((p) => ({ ...p, [key]: false }));
+  }
+}
+
+function openLunchInspectorFor(empId: string, empName: string, yyyy_mm_dd: string) {
+  setInspectEmployee({ id: empId, name: empName });
+  setInspectDate(yyyy_mm_dd);
+  loadLunchForDay(empId, yyyy_mm_dd);
+}
+
+
+
+const filteredWorklogItems = useMemo(() => {
+  const q = worklogQuery.trim().toLowerCase();
+  if (!q) return worklogItems;
+
+  return worklogItems
+    .map((row) => {
+      const todos = row.todos.filter((t) =>
+        `${t.title} ${t.status}`.toLowerCase().includes(q)
+      );
+      const hourlyLogs = row.hourlyLogs.filter((l) =>
+        `${l.text}`.toLowerCase().includes(q)
+      );
+
+      // keep row if employee name matches OR any match in lists
+      const empMatch = `${row.employeeName}`.toLowerCase().includes(q);
+
+      if (!empMatch && todos.length === 0 && hourlyLogs.length === 0) return null;
+
+      return { ...row, todos, hourlyLogs };
+    })
+    .filter(Boolean) as typeof worklogItems;
+}, [worklogItems, worklogQuery]);
+
+async function fetchWorklogs() {
+  try {
+    setWorklogLoading(true);
+    setWorklogError(null);
+
+    const qs = new URLSearchParams({ date: worklogDate });
+    if (worklogEmployeeId) qs.set('employeeId', worklogEmployeeId);
+
+    const res = await adminFetch(`/api/admin/worklogs?${qs.toString()}`);
+    const j = await res.json();
+
+    if (!res.ok || !j?.success) throw new Error(j?.error || 'Failed to load worklogs');
+    setWorklogItems(Array.isArray(j.items) ? j.items : []);
+  } catch (e: any) {
+    setWorklogError(e?.message || 'Failed to load worklogs');
+    setWorklogItems([]);
+  } finally {
+    setWorklogLoading(false);
+  }
+}
+useEffect(() => {
+  if (activeTab === 'worklogs') fetchWorklogs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [activeTab, worklogDate, worklogEmployeeId]);
+
 async function fetchSchedules() {
   setLoadingSchedules(true);
   try {
@@ -909,6 +1772,64 @@ async function deleteSchedule(id: string) {
     show(e.message || 'Failed to delete schedule', 'error');
   }
 }
+
+async function downloadWorklogsExcel(opts?: {
+  kind?: "day" | "range";
+  date?: string;        // yyyy-mm-dd
+  from?: string;        // yyyy-mm-dd
+  to?: string;          // yyyy-mm-dd
+  employeeId?: string;  // optional
+}) {
+  const kind = opts?.kind ?? "day";
+
+  // defaults from current UI filters
+  const date = opts?.date ?? worklogDate;
+  const employeeId = opts?.employeeId ?? worklogEmployeeId;
+
+  const params = new URLSearchParams();
+
+  if (kind === "range") {
+    const from = opts?.from ?? worklogDate;
+    const to = opts?.to ?? worklogDate;
+
+    if (!from || !to) throw new Error("Pick From and To dates");
+    if (new Date(to).getTime() < new Date(from).getTime()) throw new Error("To date must be >= From date");
+
+    params.set("from", from);
+    params.set("to", to);
+  } else {
+    if (!date) throw new Error("Pick a date");
+    params.set("date", date);
+  }
+
+  if (employeeId) params.set("employeeId", employeeId);
+
+  const res = await fetch(`/api/admin/worklogs/export?${params.toString()}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Export failed");
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+
+  const suffix =
+    kind === "range"
+      ? `_${params.get("from")}_to_${params.get("to")}`
+      : `_${params.get("date")}`;
+
+  a.download = `worklogs${suffix}${employeeId ? "_" + employeeId : ""}.xlsx`;
+
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  window.URL.revokeObjectURL(url);
+}
+
+
 
 async function forceCheckoutNow(emp: MaybeObjId, at?: string | null, reason = 'admin-force') {
   const id = asId(emp);               // <- normalize to string
@@ -991,6 +1912,11 @@ function ScheduleStatsChips({ stats }: { stats?: ScheduleStats }) {
       <span className="pill">Ack {(stats.ackRate * 100).toFixed(0)}%</span>
     </div>
   );
+}
+
+function hoursEmpName(emp: any) {
+  // reuse the same logic you already use for lunch/attendance
+  return asName({ employeeId: emp?.employeeId, employeeName: emp?.employeeName }, employees);
 }
 
 
@@ -1519,6 +2445,80 @@ async function loadLunchForDay(empId: string, yyyy_mm_dd: string) {
   } finally {
     setLoadingLunch(false);
   }
+}
+
+const [deductionDrafts, setDeductionDrafts] = useState<Record<string, DeductionDraft>>({});
+
+function getDeductionDraft(empId: string): DeductionDraft {
+  return (
+    deductionDrafts[empId] || {
+      date: new Date().toISOString().slice(0, 10), // yyyy-mm-dd
+      reason: "",
+      amount: 0,
+    }
+  );
+}
+
+function setDeductionDraft(empId: string, patch: Partial<DeductionDraft>) {
+  setDeductionDrafts((prev) => ({
+    ...prev,
+    [empId]: { ...getDeductionDraft(empId), ...patch },
+  }));
+}
+
+async function addDeductionToServer(empId: string) {
+  const d = getDeductionDraft(empId);
+  if (!d.date) return alert("Please select deduction date.");
+  if (!d.amount || d.amount <= 0) return alert("Deduction amount must be > 0.");
+
+  const res = await fetch("/api/admin/salaries/deductions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      employeeId: empId,
+      date: d.date,
+      reason: d.reason,
+      amount: d.amount,
+    }),
+  });
+
+  const json = await res.json();
+  if (!json?.success) throw new Error(json?.error || "Failed to add deduction");
+
+  // update local profile copy with server response
+  setSalaryProfiles((prev) => ({ ...prev, [empId]: json.profile }));
+
+  // reset draft (keep date, clear reason/amount)
+  setDeductionDraft(empId, { reason: "", amount: 0 });
+}
+
+async function removeDeductionFromServer(empId: string, deductionId: string) {
+  const res = await fetch("/api/admin/salaries/deductions", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ employeeId: empId, deductionId }),
+  });
+
+  const json = await res.json();
+  if (!json?.success) throw new Error(json?.error || "Failed to remove deduction");
+
+  setSalaryProfiles((prev) => ({ ...prev, [empId]: json.profile }));
+}
+
+// optional: show ledger total for current payroll range in the editor
+function sumDeductionsInRangeForUI(profile: any) {
+  const { from, to } = computePayrollRange();
+  const start = new Date(`${from}T00:00:00.000Z`).getTime();
+  const end = new Date(`${to}T23:59:59.999Z`).getTime();
+
+  const list = Array.isArray(profile?.deductions) ? profile.deductions : [];
+  return list.reduce((acc: number, x: any) => {
+    const t = new Date(x?.date).getTime();
+    const amt = Number(x?.amount) || 0;
+    if (!Number.isFinite(t) || amt <= 0) return acc;
+    if (t >= start && t <= end) return acc + amt;
+    return acc;
+  }, 0);
 }
 
 // Place this inside AdminDashboard component, below the lunchRange state:
@@ -2070,6 +3070,33 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
     return { start, end };
   }
 
+
+const APP_TZ = "Asia/Kathmandu";
+
+const timeFmt = new Intl.DateTimeFormat("en-US", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: true,
+  timeZone: APP_TZ,
+});
+
+function addHours(date: Date, hours: number) {
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
+}
+
+function fmt(iso: string) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : timeFmt.format(d);
+}
+
+function fmtRange(iso: string, hours = 1) {
+  const start = new Date(iso);
+  if (Number.isNaN(start.getTime())) return "—";
+  const end = addHours(start, hours);
+  return `${timeFmt.format(start)} - ${timeFmt.format(end)}`;
+}
+
+
   async function fetchProgressForRange(start: Date, end: Date) {
     const results: ProgressRow[] = [];
     const cursor = new Date(start);
@@ -2204,58 +3231,58 @@ const handleTogglePauseEmployee = async (emp: Employee) => {
     return lines.join('\n');
   }
 
-  async function handleExportCSV() {
-    try {
-      setExporting(true);
+ async function handleExportExcel() {
+  try {
+    setExporting(true);
 
-      const { start, end } = computeRange(
-        exportKind,
-        exportStart || undefined,
-        exportEnd || undefined
-      );
+    const { start, end } = computeRange(
+      exportKind,
+      exportStart || undefined,
+      exportEnd || undefined
+    );
 
-      // Filter client-side data by range
-      const attInRange = attendance.filter(a => within(a.timestamp, start, end));
-      const msgsInRange = messages.filter(m => within(m.createdAt, start, end));
+    const from = isoDate(start); // must be YYYY-MM-DD
+    const to = isoDate(end);     // must be YYYY-MM-DD
 
-      // Tasks: createdAt OR dueDate within range
-      const tasksInRange = tasks.filter(t =>
-        within(t.createdAt, start, end) || within(t.dueDate, start, end)
-      );
+    const res = await fetch(`/api/admin/export?from=${from}&to=${to}`, {
+      method: "GET",
+      credentials: "include",
+    });
 
-      // Progress: fetch per-day across the range
-      const progressInRange = await fetchProgressForRange(start, end);
-
-      const csv = buildCSV(
-        { start, end },
-        {
-          attendance: attInRange,
-          progress: progressInRange,
-          tasks: tasksInRange,
-          employees,
-          departments,
-          roles,
-          lunchTimes,
-          messages: msgsInRange,
-        }
-      );
-
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const fname = `report_${isoDate(start)}_to_${isoDate(end)}.csv`;
-      a.href = url;
-      a.download = fname;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      setExportOpen(false);
-      show(`Exported ${fname}`);
-    } catch (e: any) {
-      show(e?.message || 'Failed to export', 'error');
-    } finally {
-      setExporting(false);
+    if (!res.ok) {
+      let msg = `Export failed (${res.status})`;
+      try {
+        const j = await res.json();
+        msg = j?.error || j?.details || msg;
+      } catch {
+        const t = await res.text().catch(() => "");
+        if (t) msg = t;
+      }
+      throw new Error(msg);
     }
+
+    const cd = res.headers.get("content-disposition") || "";
+    const match = cd.match(/filename="([^"]+)"/);
+    const fname = match?.[1] || `employees_export_${from}_to_${to}.xlsx`;
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fname;
+    a.click();
+
+    window.URL.revokeObjectURL(url);
+
+    setExportOpen(false);
+    show(`Exported ${fname}`);
+  } catch (e: any) {
+    show(e?.message || "Failed to export", "error");
+  } finally {
+    setExporting(false);
   }
+}
 
   /* ======= Employees ======= */
   const handleCreateEmployee = async (e: React.FormEvent) => {
@@ -2601,43 +3628,159 @@ function splitISOToLocalDateTime(iso: string) {
   const mi = String(d.getMinutes()).padStart(2, '0');
   return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}:${mi}` };
 }
+useEffect(() => {
+  if (activeTab !== "workhours") return;
+  loadWorkHoursSummary();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [activeTab, hoursKind, hoursFrom, hoursTo, hoursEmployeeId]);
+
+useEffect(() => {
+  if (activeTab !== "worklogs") return;
+
+  fetchWorklogs();
+  const t = setInterval(fetchWorklogs, 20000);
+  return () => clearInterval(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [activeTab, worklogDate, worklogEmployeeId]);
 
   if (loading) return <div className="loading"><h2>Loading...</h2></div>;
 
+function downloadBlob(filename: string, blob: Blob) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+async function handleExportPayroll() {
+  try {
+    const { from, to } = computePayrollRange(); // <-- must return YYYY-MM-DD strings
+
+    // safety
+    if (!from || !to) throw new Error("Payroll range is empty.");
+
+    const url = `/api/admin/payroll/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      const j = await res.json().catch(() => null);
+      throw new Error(j?.error || `Export failed (${res.status})`);
+    }
+
+    const blob = await res.blob();
+    downloadBlob(`payroll_${from}_to_${to}.xlsx`, blob);
+  } catch (e: any) {
+    alert(e?.message || "Failed to export payroll");
+  }
+}
+
+
+function prettyTab(tab: string) {
+  const map: Record<string, string> = {
+    lunchTime: "LunchTime",
+    worklogs: "Worklogs",
+    workhours: "Workhours",
+  };
+  if (map[tab]) return map[tab];
+  return tab.charAt(0).toUpperCase() + tab.slice(1);
+}
+
   return (
     <div className="dashboard">
-      <header className="header">
-        <h1>Admin Dashboard</h1>
-        <div className="header-actions">
-          <button onClick={fetchData} className="btn info">Refresh</button>
-
-          <button onClick={() => setExportOpen(true)} className="btn primary small">⬇ Export CSV (Range)</button>
-
-          <button onClick={() => setShowHolidays(true)} className="btn success small">📅 Holidays</button>
-          <button onClick={handleLogout} className="btn danger logout-fixed">
-            Logout
-          </button>
+  {/* Topbar */}
+  <header className="adminTopbar">
+    <div className="adminTopbar__left">
+      <div className="adminBrand">
+        <div className="adminBrand__badge">A</div>
+        <div className="adminBrand__text">
+          <h1 className="adminBrand__title">Admin Dashboard</h1>
+          <div className="adminBrand__subtitle">
+            Manage attendance, employees, worklogs, payroll and rules
+          </div>
         </div>
-      </header>
+      </div>
+    </div>
 
-     <nav className="tabs">
-  {['attendance', 'employees', 'departments', 'roles', 'tasks', 'lunchTime', 'messages', 'notifications', 'rules', 'settings'].map((tab) => (
-    <button
-      key={tab}
-      onClick={() => {
-        setActiveTab(tab);
-        if (tab === 'messages') fetchMessages();
-        if (tab === 'settings') fetchAdminSettings();
-        if (tab === 'notifications') fetchNotifications();
-        if (tab === 'rules') fetchRulesAdmin();
-      }}
-      className={`tab ${activeTab === tab ? 'active' : ''}`}
-    >
-      {tab}
-    </button>
-  ))}
-</nav>
+    <div className="adminTopbar__right">
+      <div className="adminActions">
+        <button onClick={fetchData} className="actionBtn actionBtn--ghost" type="button">
+          <span className="actionBtn__icon">↻</span>
+          <span className="actionBtn__label">Refresh</span>
+        </button>
 
+        <button
+          onClick={() => setExportOpen(true)}
+          className="actionBtn actionBtn--primary"
+          type="button"
+        >
+          <span className="actionBtn__icon">⬇</span>
+          <span className="actionBtn__label">Export</span>
+          <span className="actionBtn__meta">Excel</span>
+        </button>
+
+        <button
+          onClick={() => setShowHolidays(true)}
+          className="actionBtn actionBtn--success"
+          type="button"
+        >
+          <span className="actionBtn__icon">📅</span>
+          <span className="actionBtn__label">Holidays</span>
+        </button>
+
+        <button
+          onClick={handleLogout}
+          className="actionBtn actionBtn--danger"
+          type="button"
+          title="Logout"
+        >
+          <span className="actionBtn__icon">⎋</span>
+          <span className="actionBtn__label">Logout</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  {/* Tabs */}
+  <div className="adminTabsShell">
+    <nav className="adminTabs" aria-label="Admin sections">
+      {[
+        "attendance",
+        "employees",
+        "departments",
+        "roles",
+        "tasks",
+        "lunchTime",
+        "messages",
+        "worklogs",
+        "workhours",
+        "salary",
+        "notifications",
+        "rules",
+        "settings",
+      ].map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          onClick={() => {
+            setActiveTab(tab);
+            if (tab === "messages") fetchMessages();
+            if (tab === "worklogs") fetchWorklogs();
+            if (tab === "workhours") loadWorkHoursSummary();
+            if (tab === "notifications") fetchNotifications();
+            if (tab === "rules") fetchRulesAdmin();
+            if (tab === "salary") loadSalaryProfiles();
+          }}
+          className={`adminTab ${activeTab === tab ? "is-active" : ""}`}
+        >
+          <span className="adminTab__label">{prettyTab(tab)}</span>
+        </button>
+      ))}
+    </nav>
+  </div>
 
 
       <main className="content">
@@ -2739,38 +3882,106 @@ onClick={() => forceCheckoutNow(record.employeeId)}
               ) : (
                 <div className="table-wrap trello-table">
                   <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Employee</th>
-                        <th>Employee ID</th>
-                        <th>Date</th>
-                        <th>First Check-in</th>
-                        <th>Last Check-out</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
+<thead>
+  <tr>
+    <th>Employee</th>
+    <th>Employee ID</th>
+    <th>Date</th>
+    <th>First Check-in</th>
+    <th>Last Check-out</th>
+    <th>Gross</th>
+    <th>Lunch</th>
+    <th>Net</th>
+    <th>Actions</th>
+  </tr>
+</thead>
+
                     <tbody>
-                      {pairedRows.map((row) => (
-                        <tr key={row.key}>
-                          <td>
-                            <button className="btn link" onClick={() => openAttendanceHistory(row.employeeId, row.employeeName)}>
-                              {row.employeeName}
-                            </button>
-                          </td>
-                          <td>{row.employeeId}</td>
-                          <td>{new Date(row.date).toLocaleDateString()}</td>
-                          <td>{row.firstCheckIn ? new Date(row.firstCheckIn.timestamp).toLocaleTimeString() : '—'}</td>
-                          <td>{row.lastCheckOut ? new Date(row.lastCheckOut.timestamp).toLocaleTimeString() : '—'}</td>
-                          <td>
-                            {row.firstCheckIn?.imageData && (
-                              <button onClick={() => viewImage(row.firstCheckIn!)} className="btn small">View In</button>
-                            )}{' '}
-                            {row.lastCheckOut?.imageData && (
-                              <button onClick={() => viewImage(row.lastCheckOut!)} className="btn small">View Out</button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+{pairedRows.map((row) => {
+  const empId = row.employeeId;
+  const date = row.date; // yyyy-mm-dd
+  const cacheKey = `${empId}__${date}`;
+  const lunchOv = lunchCache[cacheKey];
+  const lunchLoading = !!lunchCacheLoading[cacheKey];
+
+  const inISO = row.firstCheckIn?.timestamp;
+  const outISO = row.lastCheckOut?.timestamp;
+
+  const grossMs = diffMs(inISO, outISO);
+  const lunchMs = lunchMsForDate(lunchOv, date);
+  const netMs = Math.max(0, grossMs - lunchMs);
+
+  const empName = row.employeeName || 'Unknown';
+
+  return (
+    <tr key={row.key}>
+      <td>
+        <button className="btn link" onClick={() => openAttendanceHistory(empId, empName)}>
+          {empName}
+        </button>
+      </td>
+      <td>{empId}</td>
+      <td>{new Date(row.date).toLocaleDateString()}</td>
+
+      <td>{row.firstCheckIn ? new Date(row.firstCheckIn.timestamp).toLocaleTimeString() : '—'}</td>
+      <td>{row.lastCheckOut ? new Date(row.lastCheckOut.timestamp).toLocaleTimeString() : '—'}</td>
+
+      <td>
+        <span className="pill pill-gray mono">{grossMs ? msToHMS(grossMs) : '—'}</span>
+      </td>
+
+      <td>
+        {(!inISO || !outISO) ? (
+          <span className="muted">—</span>
+        ) : (cacheKey in lunchCache) ? (
+          <button
+            className={`pill ${lunchMs > 0 ? 'pill-amber' : 'pill-green'} mono`}
+            onClick={() => openLunchInspectorFor(empId, empName, date)}
+            title="Open lunch details"
+          >
+            {msToHMS(lunchMs)}
+          </button>
+        ) : (
+          <button
+            className="btn secondary small"
+            onClick={() => ensureLunchLoaded(empId, date)}
+            disabled={lunchLoading}
+            title="Load lunch records for this date"
+          >
+            {lunchLoading ? 'Loading…' : 'Load lunch'}
+          </button>
+        )}
+      </td>
+
+      <td>
+        <span className={`pill mono ${netMs === 0 && grossMs > 0 ? 'pill-red' : 'pill-blue'}`}>
+          {grossMs ? msToHMS(netMs) : '—'}
+        </span>
+      </td>
+
+      <td className="table-actions">
+        {row.firstCheckIn?.imageData && (
+          <button onClick={() => viewImage(row.firstCheckIn!)} className="btn small">
+            View In
+          </button>
+        )}{' '}
+        {row.lastCheckOut?.imageData && (
+          <button onClick={() => viewImage(row.lastCheckOut!)} className="btn small">
+            View Out
+          </button>
+        )}{' '}
+        <button
+          className="hm-btn hm-danger hm-sm"
+          onClick={() => forceCheckoutNow(empId)}
+          title="Force checkout now"
+        >
+          Force checkout
+        </button>
+      </td>
+    </tr>
+  );
+})}
+
                     </tbody>
                   </table>
                 </div>
@@ -3015,6 +4226,984 @@ onClick={() => forceCheckoutNow(record.employeeId)}
     )}
   </section>
 )}
+
+{activeTab === "worklogs" && (
+  <section className="card worklogs-card worklogs-card--v2">
+    {/* Header */}
+    <div className="card-header worklogs-header worklogs-header--v2">
+      <div className="worklogs-title">
+        <div className="worklogs-title-row">
+          <h2 className="worklogs-h2">Todo & Hourly Logs</h2>
+          <span className="worklogs-pill">
+            {new Date(worklogDate).toDateString()}
+          </span>
+        </div>
+        <div className="worklogs-subtitle">
+          Review employee daily workbooks by date, employee, and keyword.
+        </div>
+      </div>
+<button className="btn btn--v2" onClick={openWorklogsExport}>
+  Export Excel
+</button>
+
+      {/* Sticky filter bar */}
+      <div className="worklogs-filters worklogs-filters--v2">
+        <div className="filter-group">
+          <label className="filter-label">Date</label>
+          <input
+            className="input input--v2"
+            type="date"
+            value={worklogDate}
+            onChange={(e) => setWorklogDate(e.target.value)}
+          />
+        </div>
+
+<div className="filter-group">
+  <label className="filter-label">Employee</label>
+
+  {/* input-like shell */}
+  <div className="select-shell input--v2">
+    <Users className="select-icon" size={16} />
+
+    <select
+      className="select-native"
+      value={worklogEmployeeId}
+      onChange={(e) => setWorklogEmployeeId(e.target.value)}
+    >
+      <option value="">All Employees</option>
+      {employees.map((emp) => (
+        <option key={emp._id} value={emp._id}>
+          {emp.name} ({emp.position})
+        </option>
+      ))}
+    </select>
+
+    <ChevronDown className="select-caret" size={16} />
+  </div>
+</div>
+
+        <div className="filter-group grow">
+          <label className="filter-label">Search</label>
+          <input
+            className="input input--v2"
+            placeholder="Search employee, todo, or log text…"
+            value={worklogQuery}
+            onChange={(e) => setWorklogQuery(e.target.value)}
+          />
+        </div>
+
+       <div className="filter-group filter-group--action">
+  <label className="filter-label">Action</label>
+
+  <button
+    className="btn btn--v2 btn-reload"
+    onClick={fetchWorklogs}
+    disabled={worklogLoading}
+    title="Reload worklogs"
+  >
+    <RefreshCw className={`btn-ico ${worklogLoading ? "spin" : ""}`} size={16} />
+    <span className="btn-text">{worklogLoading ? "Loading…" : "Reload"}</span>
+  </button>
+</div>
+      </div>
+    </div>
+
+    {/* Error */}
+    {worklogError && (
+      <div className="error-box worklogs-error worklogs-error--v2">
+        <div className="error-left">
+          <strong>Error:</strong>
+          <span>{worklogError}</span>
+        </div>
+        <button onClick={fetchWorklogs} className="btn danger small btn--v2">
+          Retry
+        </button>
+      </div>
+    )}
+
+    {/* Body */}
+    {worklogLoading ? (
+      <div className="worklogs-loading worklogs-loading--v2">
+        <div className="skeleton-card" />
+        <div className="skeleton-card" />
+        <div className="skeleton-card" />
+      </div>
+    ) : filteredWorklogItems.length === 0 ? (
+      <div className="empty worklogs-empty worklogs-empty--v2">
+        <div className="empty-title">No worklogs found</div>
+        <div className="empty-sub">
+          No todo/hourly logs for <strong>{new Date(worklogDate).toDateString()}</strong>.
+        </div>
+      </div>
+    ) : (
+      <div className="worklogs-grid worklogs-grid--v2">
+        {filteredWorklogItems.map((row) => {
+          const totalTodos = row.todos.length;
+          const doneTodos = row.todos.filter((t) => t.status === "done").length;
+          const pendingTodos = totalTodos - doneTodos;
+          const completion = totalTodos === 0 ? 0 : Math.round((doneTodos / totalTodos) * 100);
+
+          const totalLogs = row.hourlyLogs.length;
+          const isExpanded = !!expandedRows[row.employeeId];
+
+          const todosSorted = row.todos
+            .slice()
+            .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+
+          const logsSorted = row.hourlyLogs
+            .slice()
+            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+          const todoPreview = isExpanded ? todosSorted : todosSorted.slice(0, 6);
+          const logPreview = isExpanded ? logsSorted : logsSorted.slice(0, 6);
+
+          // initials for avatar
+          const initials =
+            (row.employeeName || "")
+              .split(" ")
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((s) => s[0]?.toUpperCase())
+              .join("") || "E";
+
+          return (
+            <article
+              key={row.employeeId}
+              className="employee-card employee-card--v2"
+              style={{ ["--p" as any]: completion }}
+            >
+              {/* top */}
+              <div className="employee-card-top employee-card-top--v2">
+                <div className="employee-left">
+                  <div className="employee-avatar">{initials}</div>
+
+                  <div className="employee-meta">
+                    <div className="employee-name employee-name--v2">{row.employeeName}</div>
+                    <div className="employee-date">{new Date(worklogDate).toDateString()}</div>
+
+                    <div className="employee-metrics employee-metrics--v2">
+                      <span className="chip chip-gray" title="Total todos">
+                        Todos <strong>{totalTodos}</strong>
+                      </span>
+                      <span className="chip chip-green" title="Completed todos">
+                        Done <strong>{doneTodos}</strong>
+                      </span>
+                      <span className="chip chip-amber" title="Pending todos">
+                        Pending <strong>{pendingTodos}</strong>
+                      </span>
+                      <span className="chip chip-blue" title="Hourly logs">
+                        Logs <strong>{totalLogs}</strong>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="employee-right">
+                  <div className="progress-ring" aria-label={`Completion ${completion}%`}>
+                    <div className="progress-ring-center">
+                      <div className="progress-ring-value">{completion}%</div>
+                      <div className="progress-ring-label">Complete</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* content */}
+              <div className="employee-card-content employee-card-content--v2">
+                {/* Todos */}
+                <div className="panel panel--v2">
+                  <div className="panel-title panel-title--v2">
+                    <span>Todos</span>
+                    <span className="panel-sub">
+                      {totalTodos ? "Sorted by last update" : "No items"}
+                    </span>
+                  </div>
+
+                  {totalTodos === 0 ? (
+                    <div className="muted">No todos</div>
+                  ) : (
+                    <ul className="list list--v2">
+                      {todoPreview.map((t) => (
+                        <li key={t._id} className="list-item list-item--v2">
+                          <span
+                            className={`badge badge--v2 ${
+                              t.status === "done" ? "badge-green" : "badge-gray"
+                            }`}
+                          >
+                            {t.status === "done" ? "Done" : "Pending"}
+                          </span>
+
+                          <div className="list-text list-text--v2">
+                            <div className="list-main">{t.title}</div>
+                            <div className="list-sub">{fmtTime(t.updatedAt)}</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Hourly logs */}
+                <div className="panel panel--v2">
+                  <div className="panel-title panel-title--v2">
+                    <span>Hourly Logs</span>
+                    <span className="panel-sub">
+                      {totalLogs ? "Sorted by time" : "No items"}
+                    </span>
+                  </div>
+
+                  {totalLogs === 0 ? (
+                    <div className="muted">No logs</div>
+                  ) : (
+                    <ul className="list list--v2">
+                      {logPreview.map((l) => (
+                        <li key={l._id} className="list-item list-item--v2">
+                          <span className="time-pill time-pill--v2">
+                            {fmtRange(l.timestamp, 1)}
+                          </span>
+
+                          <div className="list-text list-text--v2">
+                            <div className="list-main">{l.text}</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              {(row.todos.length > 6 || row.hourlyLogs.length > 6) && (
+                <div className="employee-card-footer employee-card-footer--v2">
+                  <button className="btn small secondary btn--v2" onClick={() => toggleExpanded(row.employeeId)}>
+                    {isExpanded ? "Show less" : "Show more"}
+                  </button>
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    )}
+    {wlExportOpen && (
+  <div
+    className="hm-backdrop"
+    onClick={(e) => {
+      if (e.target === e.currentTarget) closeWorklogsExport();
+    }}
+    role="dialog"
+    aria-modal="true"
+  >
+    <div className="hm-modal" role="document" aria-labelledby="wl-export-title">
+      <div className="hm-header">
+        <h3 id="wl-export-title">Export Worklogs (Excel)</h3>
+        <button className="hm-btn hm-secondary" onClick={closeWorklogsExport} aria-label="Close">
+          ✕
+        </button>
+      </div>
+
+      <div className="hm-section">
+        <div className="field">
+          <label>Export Type</label>
+          <select
+            className="input"
+            value={wlExportKind}
+            onChange={(e) => setWlExportKind(e.target.value as any)}
+          >
+            <option value="day">Single Date</option>
+            <option value="range">Custom Range</option>
+          </select>
+        </div>
+
+        {wlExportKind === "day" ? (
+          <div className="field">
+            <label>Date</label>
+            <input
+              className="input"
+              type="date"
+              value={wlExportDate}
+              onChange={(e) => setWlExportDate(e.target.value)}
+            />
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
+            <div className="field">
+              <label>From</label>
+              <input
+                className="input"
+                type="date"
+                value={wlExportFrom}
+                onChange={(e) => setWlExportFrom(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>To</label>
+              <input
+                className="input"
+                type="date"
+                value={wlExportTo}
+                onChange={(e) => setWlExportTo(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="field">
+          <label>Employee (optional)</label>
+          <select
+            className="input"
+            value={wlExportEmployeeId}
+            onChange={(e) => setWlExportEmployeeId(e.target.value)}
+          >
+            <option value="">All Employees</option>
+            {employees.map((emp) => (
+              <option key={emp._id} value={emp._id}>
+                {emp.name} ({emp.position})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="hm-actions" style={{ marginTop: 12 }}>
+          <button className="hm-btn hm-secondary" onClick={closeWorklogsExport} disabled={wlExporting}>
+            Cancel
+          </button>
+          <button className="hm-btn hm-primary" onClick={runWorklogsExport} disabled={wlExporting}>
+            {wlExporting ? "Exporting…" : "Export Excel"}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+  </section>
+
+  
+)}
+
+
+{activeTab === "workhours" && (
+  <section className="card">
+    <div className="card-header" style={{ alignItems: "center", gap: 8 }}>
+      <h2 style={{ margin: 0 }}>Work Hours Summary</h2>
+
+      <div className="actions" style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <select className="input" value={hoursKind} onChange={(e) => setHoursKind(e.target.value as any)}>
+          <option value="weekly">This Week</option>
+          <option value="monthly">This Month</option>
+          <option value="custom">Custom</option>
+        </select>
+
+        {hoursKind === "custom" && (
+          <>
+            <input className="input" type="date" value={hoursFrom} onChange={(e) => setHoursFrom(e.target.value)} />
+            <input className="input" type="date" value={hoursTo} onChange={(e) => setHoursTo(e.target.value)} />
+          </>
+        )}
+
+        
+
+        <select className="input" value={hoursEmployeeId} onChange={(e) => setHoursEmployeeId(e.target.value)}>
+          <option value="">All Employees</option>
+          {employees.map((e) => (
+            <option key={e._id} value={e._id}>
+              {e.name} ({e.position})
+            </option>
+          ))}
+        </select>
+
+        <button className="btn secondary" onClick={loadWorkHoursSummary} disabled={hoursLoading}>
+          {hoursLoading ? "Loading…" : "Reload"}
+        </button>
+<button
+  className="btn"
+  onClick={() => {
+    const { from, to } = computeHoursRange();
+
+    downloadWorkhoursExcel({
+      from,
+      to,
+      employeeId: hoursEmployeeId,
+      tz: "Asia/Kathmandu",
+      closeOpenAt: "now",
+    })
+      .then(() => show("Excel exported"))
+      .catch((e) => show(e?.message || "Export failed", "error"));
+  }}
+  disabled={hoursLoading}
+>
+  Export Excel
+</button>
+
+
+      </div>
+      
+    </div>
+    
+
+    {hoursError && (
+      <div className="error-box">
+        <span>{hoursError}</span>
+        <button className="btn danger small" onClick={loadWorkHoursSummary}>Retry</button>
+      </div>
+    )}
+
+    {!hoursSummary ? (
+      <div className="empty">No data</div>
+    ) : (
+      <div className="subcard">
+        <div className="muted" style={{ marginBottom: 10 }}>
+          Range: <strong>{hoursSummary.range.from}</strong> → <strong>{hoursSummary.range.to}</strong> ({hoursSummary.range.tz})
+        </div>
+
+        {hoursSummary.employees.length === 0 ? (
+          <div className="empty">No attendance in this range.</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Days</th>
+                  <th>Gross</th>
+                  <th>Lunch</th>
+                  <th>Net</th>
+                  <th>Avg/Day (Net)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hoursSummary.employees.map((emp) => (
+                  <tr key={emp.employeeId}>
+                    <td>
+                      <details>
+<summary>
+  <strong>{employeeLabel(emp, employees)}</strong>
+  {/* <span className="muted" style={{ marginLeft: 8 }}>
+    {asId(emp.employeeId)}
+  </span> */}
+</summary>
+
+                        {/* drill-down day list */}
+                        <div className="subcard" style={{ marginTop: 10 }}>
+                          <div className="muted" style={{ marginBottom: 8 }}>
+                            Daily breakdown (Net = Gross − Lunch)
+                          </div>
+                          <div className="table-wrap">
+                            <table className="table">
+                              <thead>
+  <tr>
+    <th>Date</th>
+    <th>Status</th>
+    <th>First In</th>
+    <th>Last Out</th>
+    <th>Gross</th>
+    <th>Lunch</th>
+    <th>Net</th>
+  </tr>
+</thead>
+                              <tbody>
+                                {emp.byDay.map((d) => (
+                                 <tr key={d.date}>
+  <td>{new Date(d.date).toLocaleDateString()}</td>
+
+  <td>
+    {d.status === "valid" ? (
+      <span className="pill pill-green mono">VALID</span>
+    ) : (
+      <span className="pill pill-red mono" title={(d.reasons || []).join(", ")}>
+        INVALID
+      </span>
+    )}
+  </td>
+
+  <td>{d.firstIn ? new Date(d.firstIn).toLocaleTimeString() : "—"}</td>
+  <td>{d.lastOut ? new Date(d.lastOut).toLocaleTimeString() : "—"}</td>
+  <td><span className="pill pill-gray mono">{msToHMS(d.grossMs)}</span></td>
+  <td><span className="pill pill-amber mono">{msToHMS(d.lunchMs)}</span></td>
+  <td><span className="pill pill-blue mono">{msToHMS(d.netMs)}</span></td>
+</tr>
+
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </details>
+                    </td>
+
+                    <td>{emp.totals.days}</td>
+                    <td><span className="pill pill-gray mono">{emp.totals.grossHMS}</span></td>
+                    <td><span className="pill pill-amber mono">{emp.totals.lunchHMS}</span></td>
+                    <td><span className="pill pill-blue mono">{emp.totals.netHMS}</span></td>
+                    <td><span className="pill mono">{emp.totals.avgNetPerDayHMS}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )}
+  </section>
+)}
+
+
+
+{activeTab === "salary" && (
+  <section className="card">
+    <div className="card-header" style={{ alignItems: "center", gap: 10 }}>
+      <h2 style={{ margin: 0 }}>Salary & Payroll</h2>
+
+      <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button
+          className="btn secondary small"
+          onClick={loadSalaryProfiles}
+          disabled={salaryLoading}
+          title="Reload salary profiles"
+        >
+          {salaryLoading ? "Loading…" : "Reload Profiles"}
+        </button>
+
+        <button
+          className="btn primary small"
+          onClick={generatePayrollPreview}
+          disabled={payrollPreviewLoading}
+          title="Generate payroll preview from attendance summary"
+        >
+          {payrollPreviewLoading ? "Generating…" : "Generate Payroll Preview"}
+        </button>
+        
+<button className="btn btn--v2" onClick={handleExportPayroll}>
+  Export Excel
+</button>
+      </div>
+    </div>
+
+    {salaryError && (
+      <div className="error-box">
+        <span>{salaryError}</span>
+      </div>
+    )}
+
+    {/* Employee selector + Payroll range controls */}
+    <div className="subcard" style={{ marginBottom: 12 }}>
+      <div className="form grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        <div className="field">
+          <label>Employee (edit profile)</label>
+          <select
+            className="input"
+            value={salarySelectedEmployeeId}
+            onChange={(e) => setSalarySelectedEmployeeId(e.target.value)}
+          >
+            <option value="">Select employee…</option>
+            {employees.map((e) => (
+              <option key={e._id} value={e._id}>
+                {e.name} ({e.position})
+              </option>
+            ))}
+          </select>
+          <small className="muted">Pick an employee to set salary rules.</small>
+        </div>
+
+        <div className="field">
+          <label>Payroll view filter</label>
+          <select
+            className="input"
+            value={salaryEmployeeFilter}
+            onChange={(e) => setSalaryEmployeeFilter(e.target.value)}
+          >
+            <option value="">All Employees</option>
+            {employees.map((e) => (
+              <option key={e._id} value={e._id}>
+                {e.name} ({e.position})
+              </option>
+            ))}
+          </select>
+          <small className="muted">Filters preview table only.</small>
+        </div>
+
+        <div className="field">
+          <label>Payroll range</label>
+          <select
+            className="input"
+            value={payrollKind}
+            onChange={(e) => setPayrollKind(e.target.value as any)}
+          >
+            <option value="monthly">This Month</option>
+            <option value="custom">Custom</option>
+          </select>
+          <small className="muted">Monthly uses current month UTC range.</small>
+        </div>
+
+        {payrollKind === "custom" && (
+          <>
+            <div className="field">
+              <label>From</label>
+              <input className="input" type="date" value={payrollFrom} onChange={(e) => setPayrollFrom(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>To</label>
+              <input className="input" type="date" value={payrollTo} onChange={(e) => setPayrollTo(e.target.value)} />
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+
+ <div className="subcard" style={{ marginBottom: 12 }}>
+  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+    <h3 style={{ margin: 0 }}>Salary Profile</h3>
+    <span className="pill pill-gray">Set pay rules + effective date + deductions ledger</span>
+  </div>
+
+  {!salarySelectedEmployeeId ? (
+    <p className="muted">Select an employee to edit salary profile.</p>
+  ) : (() => {
+    const empId = salarySelectedEmployeeId;
+    const p = getOrInitProfile(empId);
+    const draft = getDeductionDraft(empId);
+    const { from, to } = computePayrollRange();
+    const rangeDedTotal = sumDeductionsInRangeForUI(p);
+
+    return (
+      <>
+        {/* Segmented Pay Type */}
+        <div className="subcard" style={{ padding: 12, marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ fontWeight: 600 }}>Pay Type</div>
+
+            <div
+              style={{
+                display: "inline-flex",
+                border: "1px solid rgba(0,0,0,0.12)",
+                borderRadius: 12,
+                overflow: "hidden",
+              }}
+            >
+              <button
+                className={`btn small ${p.payType === "monthly" ? "primary" : "secondary"}`}
+                style={{ borderRadius: 0 }}
+                onClick={() => updateSalaryProfile(empId, { payType: "monthly" })}
+              >
+                Monthly
+              </button>
+              <button
+                className={`btn small ${p.payType === "hourly" ? "primary" : "secondary"}`}
+                style={{ borderRadius: 0 }}
+                onClick={() => updateSalaryProfile(empId, { payType: "hourly" })}
+              >
+                Hourly
+              </button>
+            </div>
+
+            <span className="pill pill-amber" style={{ marginLeft: "auto" }}>
+              Range deductions ({from} → {to}): NPR {npr(rangeDedTotal)}
+            </span>
+          </div>
+        </div>
+
+        {/* Profile fields in 2-column “card grid” */}
+        <div
+          className="form grid"
+          style={{
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            gap: 12,
+            alignItems: "start",
+          }}
+        >
+          {/* Effective From */}
+          <div className="field">
+            <label>Effective From</label>
+            <input
+              className="input"
+              type="date"
+              value={(p.effectiveFrom || "").slice(0, 10)}
+              onChange={(e) => updateSalaryProfile(empId, { effectiveFrom: e.target.value })}
+            />
+            <small className="muted">
+              Salary starts applying from this date onward (payroll preview uses the current range).
+            </small>
+          </div>
+
+          {/* Monthly/Hourly */}
+          {p.payType === "monthly" ? (
+            <div className="field">
+              <label>Base Monthly Salary (NPR)</label>
+              <input
+                className="input"
+                type="number"
+                value={p.baseMonthly ?? 0}
+                onChange={(e) => updateSalaryProfile(empId, { baseMonthly: safeNum(e.target.value) })}
+              />
+              <small className="muted">Base salary before OT/allowances/deductions.</small>
+            </div>
+          ) : (
+            <div className="field">
+              <label>Hourly Rate (NPR / hour)</label>
+              <input
+                className="input"
+                type="number"
+                value={p.hourlyRate ?? 0}
+                onChange={(e) => updateSalaryProfile(empId, { hourlyRate: safeNum(e.target.value) })}
+              />
+              <small className="muted">Used for base pay in hourly mode.</small>
+            </div>
+          )}
+
+          <div className="field">
+            <label>Overtime Rate (NPR / hour)</label>
+            <input
+              className="input"
+              type="number"
+              value={p.overtimeRate ?? 0}
+              onChange={(e) => updateSalaryProfile(empId, { overtimeRate: safeNum(e.target.value) })}
+            />
+            <small className="muted">If 0, hourly mode can fallback to hourlyRate.</small>
+          </div>
+
+          <div className="field">
+            <label>Standard Hours / Day</label>
+            <input
+              className="input"
+              type="number"
+              value={p.standardHoursPerDay ?? 8}
+              onChange={(e) => updateSalaryProfile(empId, { standardHoursPerDay: safeNum(e.target.value) || 8 })}
+            />
+            <small className="muted">Used to compute overtime hours from attendance.</small>
+          </div>
+
+          <div className="field">
+            <label>Allowances (NPR)</label>
+            <input
+              className="input"
+              type="number"
+              value={p.allowances ?? 0}
+              onChange={(e) => updateSalaryProfile(empId, { allowances: safeNum(e.target.value) })}
+            />
+            <small className="muted">Added to gross pay.</small>
+          </div>
+
+          <div className="field" style={{ gridColumn: "1 / -1" }}>
+            <label>Notes</label>
+            <textarea
+              className="input textarea"
+              rows={3}
+              value={p.notes ?? ""}
+              onChange={(e) => updateSalaryProfile(empId, { notes: e.target.value })}
+            />
+          </div>
+        </div>
+
+        {/* Deductions ledger */}
+        <div className="subcard" style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <h4 style={{ margin: 0 }}>Deductions Ledger</h4>
+            <span className="muted">
+              Each entry stores date, reason, and amount. Payroll preview sums entries inside the selected range.
+            </span>
+          </div>
+
+          {/* Add deduction row */}
+          <div
+            className="form grid"
+            style={{
+              marginTop: 10,
+              gridTemplateColumns: "180px 1fr 160px 160px",
+              gap: 10,
+            }}
+          >
+            <div className="field" style={{ margin: 0 }}>
+              <label>Date</label>
+              <input
+                className="input"
+                type="date"
+                value={draft.date}
+                onChange={(e) => setDeductionDraft(empId, { date: e.target.value })}
+              />
+            </div>
+
+            <div className="field" style={{ margin: 0 }}>
+              <label>Reason</label>
+              <input
+                className="input"
+                placeholder="Late, advance adjustment, damage, etc."
+                value={draft.reason}
+                onChange={(e) => setDeductionDraft(empId, { reason: e.target.value })}
+              />
+            </div>
+
+            <div className="field" style={{ margin: 0 }}>
+              <label>Amount (NPR)</label>
+              <input
+                className="input"
+                type="number"
+                value={draft.amount}
+                onChange={(e) => setDeductionDraft(empId, { amount: safeNum(e.target.value) })}
+              />
+            </div>
+
+            <div className="field" style={{ margin: 0, display: "flex", alignItems: "end" }}>
+              <button
+                className="btn primary"
+                onClick={async () => {
+                  try {
+                    await addDeductionToServer(empId);
+                  } catch (e: any) {
+                    alert(e?.message || "Failed to add deduction");
+                  }
+                }}
+                disabled={salaryLoading}
+                style={{ width: "100%" }}
+              >
+                Add Deduction
+              </button>
+            </div>
+          </div>
+
+          {/* Ledger table */}
+          <div style={{ marginTop: 12 }}>
+            {Array.isArray(p.deductions) && p.deductions.length > 0 ? (
+              <div className="table-wrap trello-table">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 140 }}>Date</th>
+                      <th>Reason</th>
+                      <th style={{ width: 140 }}>Amount</th>
+                      <th style={{ width: 120 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...p.deductions]
+                      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                      .map((d: any) => (
+                        <tr key={d._id || `${d.date}-${d.amount}-${d.reason}`}>
+                          <td>{String(d.date).slice(0, 10)}</td>
+                          <td>{d.reason || <span className="muted">—</span>}</td>
+                          <td>NPR {npr(Number(d.amount) || 0)}</td>
+                          <td>
+                            {d._id ? (
+                              <button
+                                className="btn danger small"
+                                onClick={async () => {
+                                  try {
+                                    await removeDeductionFromServer(empId, d._id);
+                                  } catch (e: any) {
+                                    alert(e?.message || "Failed to remove deduction");
+                                  }
+                                }}
+                              >
+                                Remove
+                              </button>
+                            ) : (
+                              <span className="muted">n/a</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="muted" style={{ marginTop: 8 }}>
+                No deductions yet.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="actions" style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn primary" onClick={() => saveSalaryProfileToServer(empId)} disabled={salaryLoading}>
+            {salaryLoading ? "Saving…" : "Save Profile"}
+          </button>
+
+          <button
+            className="btn secondary"
+            onClick={() => {
+              const serverCopy = salaryProfiles[empId];
+              if (serverCopy) setSalaryProfiles((prev) => ({ ...prev, [empId]: serverCopy }));
+              else
+                setSalaryProfiles((prev) => {
+                  const copy = { ...prev };
+                  delete copy[empId];
+                  return copy;
+                });
+            }}
+            disabled={salaryLoading}
+          >
+            Reset
+          </button>
+        </div>
+      </>
+    );
+  })()}
+</div>
+
+
+    {/* Payroll preview table */}
+    <div className="subcard">
+      <div className="card-header" style={{ padding: 0, marginBottom: 8 }}>
+        <h3 style={{ margin: 0 }}>Payroll Preview</h3>
+        <div className="actions" style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {payrollPreviewError && <span className="muted">{payrollPreviewError}</span>}
+        </div>
+      </div>
+
+      {!payrollPreview ? (
+        <p className="muted">Click “Generate Payroll Preview” to compute payroll from attendance summary.</p>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <span className="pill pill-gray">
+              Range: {payrollPreview.range.from} → {payrollPreview.range.to} ({payrollPreview.range.tz})
+            </span>
+            <span className="pill pill-blue">Employees: {payrollPreview.totals.employees}</span>
+            <span className="pill pill-green">Gross: NPR {npr(payrollPreview.totals.gross)}</span>
+            <span className="pill pill-amber">Net: NPR {npr(payrollPreview.totals.net)}</span>
+          </div>
+
+          <div className="table-wrap trello-table">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Pay Type</th>
+                  <th>Valid Days</th>
+                  <th>Net Hours</th>
+                  <th>Base Pay</th>
+                  <th>OT Pay</th>
+                  <th>Allowances</th>
+                  <th>Deductions</th>
+                  <th>Gross</th>
+                  <th>Net</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payrollPreview.lines.map((x) => (
+                  <tr key={x.employeeId}>
+                    <td>{x.employeeName}</td>
+                    <td><span className="badge badge-gray">{x.payType.toUpperCase()}</span></td>
+                    <td>{x.validDays}</td>
+                    <td>{x.netHours}</td>
+                    <td>NPR {npr(x.basePay)}</td>
+                    <td>NPR {npr(x.overtimePay)}</td>
+                    <td>NPR {npr(x.allowances)}</td>
+                    <td>NPR {npr(x.deductions)}</td>
+                    <td><strong>NPR {npr(x.gross)}</strong></td>
+                    <td><strong>NPR {npr(x.net)}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  </section>
+)}
+
+
 
 
         {/* Employees */}
@@ -4509,12 +6698,21 @@ onClick={() => forceCheckoutNow(record.employeeId)}
             </div>
 
             <div className="actions">
-              <button className="btn secondary" onClick={() => setExportOpen(false)} disabled={exporting}>
-                Cancel
-              </button>
-              <button className={`btn ${exporting ? 'secondary' : 'primary'}`} onClick={handleExportCSV} disabled={exporting}>
-                {exporting ? 'Preparing…' : 'Download CSV'}
-              </button>
+              <button
+        className="btn"
+        onClick={() => setExportOpen(false)}
+        disabled={exporting}
+      >
+        Cancel
+      </button>
+
+      <button
+        className="btn primary"
+        onClick={handleExportExcel}
+        disabled={exporting}
+      >
+        {exporting ? "Exporting..." : "Download Excel"}
+      </button>
             </div>
           </div>
         </div>

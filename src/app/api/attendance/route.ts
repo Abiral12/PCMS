@@ -3,6 +3,7 @@ import dbConnect from '@/lib/mongodb';
 import Attendance from '@/models/Attendance';
 import jwt from 'jsonwebtoken';
 import Employee from '@/models/Employee';
+import WorkbookDay from '@/models/WorkbookDay';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
@@ -13,6 +14,32 @@ export const config = {
     },
   },
 };
+
+function ymdInTZ(date: Date, tz: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+async function ensureSubmitted(employeeId: string, tz: string) {
+  const date = ymdInTZ(new Date(), tz);
+
+  const day = await WorkbookDay.findOne({ employeeId, date })
+    .select("isSubmitted submittedAt")
+    .lean();
+
+  if (!day || !day.isSubmitted) {
+    return { ok: false as const, date };
+  }
+  return { ok: true as const, date };
+}
+
 
 // ---------------- POST ----------------
 export async function POST(request: NextRequest) {
@@ -48,26 +75,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const attendanceRecord = await Attendance.create({
-      employeeId: body.employeeId,
-      employeeName: body.employeeName || decoded.email || 'Unknown Employee',
-      type: body.type,
-      timestamp: new Date(),
-      imageData: body.imageData || null,
-    });
+if (body.type === "checkout") {
+  const tz = body.tz || "Asia/Kathmandu";
+  const gate = await ensureSubmitted(String(body.employeeId), String(tz));
+
+  if (!gate.ok) {
+    return NextResponse.json(
+      {
+        error: "Cannot checkout. Today workbook is not submitted.",
+        code: "WORKBOOK_NOT_SUBMITTED",
+        date: gate.date,
+      },
+      { status: 403 }
+    );
+  }
+}
+
+
+const attendanceRecord = await Attendance.create({
+  employeeId: body.employeeId,
+  employeeName: body.employeeName || decoded.email || 'Unknown Employee',
+  type: body.type,
+  timestamp: new Date(),
+  imageData: body.imageData || null,
+});
 
     return NextResponse.json(
       { message: 'Attendance recorded successfully', data: attendanceRecord },
       { status: 201 }
     );
-  } catch (error: any) {
-    console.error('API Error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error: ' + error.message },
-      { status: 500 }
-    );
-  }
+  }  catch (error: any) {
+  console.error('API Error:', error);
+
+  const status = error?.status || 500;
+  return NextResponse.json(
+    {
+      error: error?.message ? String(error.message) : 'Internal server error',
+      code: error?.code,
+      ymd: error?.ymd,
+    },
+    { status }
+  );
 }
+}
+
 
 // ---------------- GET ----------------
 export async function GET(request: NextRequest) {

@@ -25,6 +25,8 @@ import {
   Menu,
 } from "lucide-react";
 import LunchCam from "@/components/LaunchCamera";
+import { NotebookPen } from "lucide-react";
+import WorkbookTab from "@/components/WorkbookTab";
 
 /* ================== Types ================== */
 type CheckInOutData = {
@@ -139,8 +141,9 @@ export default function Dashboard() {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [lunchLogs, setLunchLogs] = useState<LunchLog[]>([]);
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "attendance" | "tasks" | "lunch" | "holidays" | "admin" | "rules"
-  >("dashboard");
+  "dashboard" | "workbook" | "attendance" | "tasks" | "lunch" | "holidays" | "admin" | "rules"
+>("dashboard");
+
 
   /* --------- UI state --------- */
   const [showProgressForm, setShowProgressForm] = useState(false);
@@ -259,6 +262,58 @@ export default function Dashboard() {
   const [pushError, setPushError] = useState<string | null>(null);
 
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+      // Workbook submit (client-side status)
+  const [workbookSubmitted, setWorkbookSubmitted] = useState(false);
+  const [workbookSubmitting, setWorkbookSubmitting] = useState(false);
+  const [workbookSubmitError, setWorkbookSubmitError] = useState<string | null>(null);
+// Workbook completion gate (no hardcoded times)
+const [workbookCanSubmit, setWorkbookCanSubmit] = useState(false);
+const [workbookMissingCount, setWorkbookMissingCount] = useState(0);
+const checkoutDisabled = !workbookSubmitted;
+  useEffect(() => {
+    // reset when user changes / fresh session
+    if (employeeId) {
+      setWorkbookSubmitted(false);
+      setWorkbookSubmitting(false);
+      setWorkbookSubmitError(null);
+    }
+  }, [employeeId]);
+
+  const submitWorkbookToday = useCallback(async () => {
+    if (!employeeId) return;
+
+    try {
+      setWorkbookSubmitting(true);
+      setWorkbookSubmitError(null);
+
+      const res = await fetch("/api/workbook/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...buildAuthHeaders() },
+        body: JSON.stringify({
+          employeeId,
+          tz: "Asia/Kathmandu",
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to submit workbook");
+      }
+
+      setWorkbookSubmitted(true);
+      // optional:
+      alert("Workbook submitted successfully!");
+    } catch (e: any) {
+      console.error(e);
+      setWorkbookSubmitError(e?.message || "Failed to submit workbook");
+      setWorkbookSubmitted(false);
+    } finally {
+      setWorkbookSubmitting(false);
+    }
+  }, [employeeId]);
+
 
   const registerForPush = useCallback(async () => {
     try {
@@ -478,6 +533,8 @@ export default function Dashboard() {
     }
   }, []);
 
+
+  
   const loadAttendance = useCallback(async (empId: string) => {
     if (!empId) return;
     try {
@@ -1066,8 +1123,8 @@ export default function Dashboard() {
 
 
   const go = (tab:
-    "dashboard" | "attendance" | "tasks" | "lunch" | "holidays" | "admin" | "rules"
-  ) => {
+  "dashboard" | "workbook" | "attendance" | "tasks" | "lunch" | "holidays" | "admin" | "rules"
+) => {
   setActiveTab(tab);
   setIsMobileMenuOpen(false);
 };
@@ -1239,6 +1296,13 @@ export default function Dashboard() {
           <button className={`nav-item ${activeTab==="dashboard"?"active":""}`} onClick={() => go("dashboard")}>
   <BarChart3 size={18}/> <span>Dashboard</span>
 </button>
+<button
+  className={`nav-item ${activeTab==="workbook"?"active":""}`}
+  onClick={() => go("workbook")}
+>
+  <NotebookPen size={18}/> <span>Workbook</span>
+</button>
+
   <button className={`nav-item ${activeTab==="rules"?"active":""}`} onClick={() => go("rules")}>
     <ClipboardList size={18}/> <span>Rule Book</span>
   </button>
@@ -1481,15 +1545,23 @@ export default function Dashboard() {
                   >
                     Check In
                   </button>
-                  <button
-                    className="danger-btn"
-                    onClick={() => {
-                      setCheckType("checkout");
-                      setShowCameraPopup(true);
-                    }}
-                  >
-                    Check Out
-                  </button> 
+                 <button
+  className="danger-btn"
+  disabled={checkoutDisabled}
+  title={
+    checkoutDisabled
+      ? `Complete and submit today's workbook first (${workbookMissingCount} missing log(s))`
+      : "Check Out"
+  }
+  onClick={() => {
+    if (checkoutDisabled) return; // extra safety
+    setCheckType("checkout");
+    setShowCameraPopup(true);
+  }}
+>
+  Check Out
+</button>
+
                 </div>
               )}
 
@@ -1545,6 +1617,70 @@ export default function Dashboard() {
             </div>
           </section>
         )}
+
+{activeTab === "workbook" && (
+  <section className="workbook-section">
+    <div className="section-header">
+      <h2>Workbook</h2>
+
+      <div className="section-actions">
+        {workbookSubmitted ? (
+          <span className="badge badge-green">Submitted</span>
+        ) : (
+          <span className="badge badge-gray">Not submitted</span>
+        )}
+
+        {!workbookSubmitted && workbookMissingCount > 0 && (
+          <span className="badge badge-amber">
+            {workbookMissingCount} missing log(s)
+          </span>
+        )}
+
+        <button
+          className={`btn ${workbookSubmitted ? "secondary" : "primary"}`}
+          onClick={submitWorkbookToday}
+          disabled={
+            workbookSubmitting ||
+            workbookSubmitted ||
+            !workbookCanSubmit
+          }
+          title={
+            workbookSubmitted
+              ? "Already submitted"
+              : !workbookCanSubmit
+              ? `Fill all hourly logs first (${workbookMissingCount} missing)`
+              : "Submit today’s workbook"
+          }
+        >
+          {workbookSubmitting ? "Submitting…" : "Submit Day"}
+        </button>
+      </div>
+    </div>
+
+    {workbookSubmitError && (
+      <div className="error-box">{workbookSubmitError}</div>
+    )}
+
+    {!workbookSubmitted && workbookMissingCount > 0 && (
+      <div className="error-box" style={{ marginTop: 10 }}>
+        Please fill every hourly log created for today before submitting.
+        Missing: {workbookMissingCount}
+      </div>
+    )}
+
+    <WorkbookTab
+      employeeId={employeeId}
+      employeeName={employeeName}
+      onValidationChange={({ canSubmit, missingCount }) => {
+        setWorkbookCanSubmit(canSubmit);
+        setWorkbookMissingCount(missingCount);
+      }}
+    />
+  </section>
+)}
+
+
+
 
         {/* ===== Rules (public) ===== */}
         {activeTab === "rules" && (
@@ -3929,6 +4065,21 @@ export default function Dashboard() {
             font-size: 12px;
           }
         }
+          .section-actions{
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.danger-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none; /* ensures truly non-clickable */
+  filter: grayscale(30%);
+}
+
+
      
       `}</style>
     </div>
