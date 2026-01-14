@@ -17,6 +17,15 @@ import {
 
 export const runtime = "nodejs";
 
+type PayrollProfileLean = {
+  baseSalary: number;
+  cycleDays: number;
+  effectiveFrom: Date;
+  excludeWeekdays?: number[];
+  perDayRounding?: "none" | "floor" | "round" | "ceil";
+  lastPaidThrough?: Date | null;
+};
+
 export async function GET(req: NextRequest) {
   try {
     await dbConnect();
@@ -27,7 +36,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, error: "employeeId is required" }, { status: 400 });
     }
 
-    const profile = await PayrollProfile.findOne({ employeeId }).lean();
+    const profile = await PayrollProfile.findOne({ employeeId }).lean<PayrollProfileLean>();
     if (!profile) {
       return NextResponse.json({ success: false, error: "No payroll profile for this employee" }, { status: 404 });
     }
