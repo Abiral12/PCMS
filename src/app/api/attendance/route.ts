@@ -31,14 +31,19 @@ async function ensureSubmitted(employeeId: string, tz: string) {
   const date = ymdInTZ(new Date(), tz);
 
   const day = await WorkbookDay.findOne({ employeeId, date })
-    .select("isSubmitted submittedAt")
-    .lean<{ isSubmitted?: boolean }>();
+    .select("isSubmitted submittedAt status")
+    .lean<{ isSubmitted?: boolean; submittedAt?: Date | null; status?: string }>();
 
-  if (!day || !day.isSubmitted) {
-    return { ok: false as const, date };
+  const submitted =
+    !!day?.submittedAt || day?.isSubmitted === true || day?.status === "submitted";
+
+  if (!day || !submitted) {
+    return { ok: false as const, date, debug: { hasDay: !!day, hasSubmittedAt: !!day?.submittedAt, isSubmitted: day?.isSubmitted, status: day?.status } };
   }
+
   return { ok: true as const, date };
 }
+
 
 
 // ---------------- POST ----------------
