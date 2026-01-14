@@ -4732,11 +4732,11 @@ onClick={() => forceCheckoutNow(record.employeeId)}
                       </details>
                     </td>
 
-                    <td>{emp.totals.days}</td>
+                    <td>{emp.totals.validDays}</td>
                     <td><span className="pill pill-gray mono">{emp.totals.grossHMS}</span></td>
                     <td><span className="pill pill-amber mono">{emp.totals.lunchHMS}</span></td>
                     <td><span className="pill pill-blue mono">{emp.totals.netHMS}</span></td>
-                    <td><span className="pill mono">{emp.totals.avgNetPerDayHMS}</span></td>
+                    <td><span className="pill mono">{emp.totals.avgNetPerValidDayHMS}</span></td>
                   </tr>
                 ))}
               </tbody>
